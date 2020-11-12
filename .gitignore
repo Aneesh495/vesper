@@ -1,0 +1,6 @@
+/build*/
+/run/
+/evidence/
+/.agent-local/
+.DS_Store
+__pycache__/
