@@ -16,3 +16,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
     endif()
 endif()
 enable_testing()
+
+add_library(vesper STATIC src/geometry.c src/bvh.c)
+target_include_directories(vesper PUBLIC include)
+target_link_libraries(vesper PUBLIC m)
