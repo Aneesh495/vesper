@@ -21,15 +21,16 @@ bool primitive_hit(Primitive p,Ray ray,out vec4 result) {
     vec3 normal;
     if (p.info.x==0u) {
         vec3 q=local-p.a.xyz;
-        float b=dot(q,ray.d);
-        vec3 nearest=q-b*ray.d;
+        float a=dot(ray.d,ray.d),b=dot(q,ray.d);
+        vec3 nearest=q-(b/a)*ray.d;
         float h=p.a.w*p.a.w-dot(nearest,nearest);
         if (h<0) return false;
-        float r=sqrt(h);
+        float r=sqrt(a*h);
         float d=-b-(b>=0?r:-r);
-        float other=d==0?d:(dot(q,q)-p.a.w*p.a.w)/d;
-        t=min(d,other);
-        if (t<ray.tmin || t>ray.tmax) t=max(d,other);
+        float other=d==0?0.:(dot(q,q)-p.a.w*p.a.w)/d;
+        float primary=d/a;
+        t=min(primary,other);
+        if (t<ray.tmin || t>ray.tmax) t=max(primary,other);
         normal=normalize(q+t*ray.d);
     } else {
         vec3 d=abs(ray.d);
@@ -80,7 +81,7 @@ Hit traverse(Ray ray) {
             float a,b;
             bool left=box_hit(nodes[node.link.x],ray,a);
             bool right=box_hit(nodes[node.link.z],ray,b);
-            if (size+uint(left)+uint(right)>64) { fail(); return hit; }
+            if (size+uint(left)+uint(right)>64) { fault(1u); return hit; }
             if (left && right && a<b) {
                 stack[size]=node.link.z; depth[size++]=b;
                 stack[size]=node.link.x; depth[size++]=a;

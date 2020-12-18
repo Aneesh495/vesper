@@ -36,5 +36,9 @@ layout(push_constant) uniform Push {
     uint stage,parity,count,seed,width,height,depth,flags,iteration;
 } pc;
 
-void fail() { atomicAdd(counter[5],1u); }
+void fault(uint code) {
+    atomicAdd(counter[5],1u);
+    uint previous=atomicCompSwap(counter[6],0u,code);
+    if (previous==0u) counter[7]=gl_GlobalInvocationID.x;
+}
 bool finite1(float x) { return !isnan(x) && !isinf(x); }

@@ -1,5 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
-#include "vesper/film.h"
+#include "vesper/gpu.h"
 
 #include <errno.h>
 #include <signal.h>
@@ -23,11 +23,12 @@ static void interrupt(int sig) { (void)sig; stop=1; }
 static void usage(void) {
     fputs("usage: vesper render SCENE [options]\n"
           "       vesper trace SCENE [options]\n"
+          "       vesper gpu-probe SCENE [options]\n"
           "  --width N --height N --spp N --seed N --depth N\n"
           "  --sampler random|stratified|halton --wavelength uniform|mixture\n"
           "  --bins N --start-ns X --step-ns X --bin N --exposure X\n"
           "  --prefix PATH --checkpoint PATH --resume PATH --pixel N --sample N\n"
-          "  --region X Y W H --no-nee --no-roulette\n",stderr);
+          "  --backend cpu|vulkan --region X Y W H --no-nee --no-roulette\n",stderr);
 }
 
 static bool uint_arg(const char *s,uint32_t *out) {
@@ -75,7 +76,11 @@ static bool arguments(Options *o,int argc,char **argv,VsError *error) {
         else if (!strcmp(key,"--prefix")) o->prefix=value;
         else if (!strcmp(key,"--checkpoint")) o->checkpoint=value;
         else if (!strcmp(key,"--resume")) o->resume=value;
-        else if (!strcmp(key,"--sampler")) {
+        else if (!strcmp(key,"--backend")) {
+            if (!strcmp(value,"cpu")) o->cfg.backend=VS_BACKEND_CPU;
+            else if (!strcmp(value,"vulkan")) o->cfg.backend=VS_BACKEND_VULKAN;
+            else return vs_fail(error,"invalid backend %s",value);
+        } else if (!strcmp(key,"--sampler")) {
             if (!strcmp(value,"random")) o->cfg.sampler=VS_RANDOM;
             else if (!strcmp(value,"stratified")) o->cfg.sampler=VS_STRATIFIED;
             else if (!strcmp(value,"halton")) o->cfg.sampler=VS_HALTON;
@@ -136,44 +141,58 @@ static double monotonic(void) {
     return t.tv_sec+t.tv_nsec*1e-9;
 }
 
-static bool render(const VsScene *s,const Options *o,VsError *error) {
+static bool render(const VsScene *s,const Options *o,bool probe,VsError *error) {
     VsFilm f={0};
-    bool ok=o->resume?vs_checkpoint_read(&f,o->resume,s,o->cfg,o->gate,0,error):
-        vs_film_init(&f,s,o->cfg,o->gate,0,error);
-    if (!ok) return false;
+    VsGpu *gpu=NULL;
+    uint64_t device=0;
+    if (o->cfg.backend==VS_BACKEND_VULKAN) {
+        if (!vs_gpu_open(&gpu,s,o->cfg,error)) return false;
+        const VsDevice *d=vs_gpu_device(gpu);
+        device=d->identity;
+        fprintf(stderr,"Vulkan device=%s vendor=%04x device_id=%08x api=%u driver=%s float64=%u validation=%u identity=%016llx\n",
+                d->name,d->vendor_id,d->device_id,d->api_version,d->driver,d->float64,d->validation,
+                (unsigned long long)device);
+    }
+    bool ok=o->resume?vs_checkpoint_read(&f,o->resume,s,o->cfg,o->gate,device,error):
+        vs_film_init(&f,s,o->cfg,o->gate,device,error);
+    if (!ok) { vs_gpu_close(gpu); return false; }
     VsRegion r=o->region;
     VsStats stats={0};
     double t0=monotonic();
     if (!vs_region_valid(&f,r)) ok=vs_fail(error,"render region outside image");
-    for (uint32_t y=r.y;ok && !stop && y<r.y+r.height;y+=16) {
-        for (uint32_t x=r.x;ok && !stop && x<r.x+r.width;x+=16) {
-            VsRegion tile={x,y,(uint32_t)fmin(16,r.x+r.width-x),(uint32_t)fmin(16,r.y+r.height-y)};
-            ok=vs_render_cpu(s,&f,tile,o->spp,&stats,error);
+    uint32_t columns=gpu?f.render.width:16;
+    uint32_t rows=gpu?8:16;
+    for (uint32_t y=r.y;ok && !stop && y<r.y+r.height;y+=rows) {
+        for (uint32_t x=r.x;ok && !stop && x<r.x+r.width;x+=columns) {
+            VsRegion tile={x,y,(uint32_t)fmin(columns,r.x+r.width-x),(uint32_t)fmin(rows,r.y+r.height-y)};
+            ok=gpu?vs_gpu_render(gpu,s,&f,tile,o->spp,&stats,error):
+                vs_render_cpu(s,&f,tile,o->spp,&stats,error);
         }
     }
     double dt=monotonic()-t0;
     if (ok && o->checkpoint) ok=vs_checkpoint_write(&f,o->checkpoint,error);
     char path[4096];
-    if (ok && !stop) {
+    if (ok && !stop && !probe) {
         ok=output_path(path,o->prefix,"exr",error) && vs_export_exr(&f,path,error) &&
            output_path(path,o->prefix,"ppm",error) && vs_export_ppm(&f,path,o->exposure,o->bin,error);
         if (ok && f.gate.bins) ok=output_path(path,o->prefix,"time.csv",error) &&
             vs_export_time_csv(&f,path,o->pixel,error);
     }
     const VsPixel *picked=f.pixels+o->pixel;
-    if (ok) printf("{\"scene\":\"%016llx\",\"backend\":\"cpu\",\"samples\":%llu,\"rays\":%llu,"
+    if (ok) printf("{\"scene\":\"%016llx\",\"backend\":\"%s\",\"samples\":%llu,\"rays\":%llu,"
         "\"shadow_rays\":%llu,\"nulls\":%llu,\"seconds\":%.9g,\"pixel\":%u,\"pixel_spp\":%u,"
         "\"pixel_y\":%.17g,\"pixel_variance_y\":%.17g,\"interrupted\":%s}\n",
-        (unsigned long long)s->identity,(unsigned long long)stats.samples,(unsigned long long)stats.rays,
+        (unsigned long long)s->identity,gpu?"vulkan":"cpu",(unsigned long long)stats.samples,(unsigned long long)stats.rays,
         (unsigned long long)stats.shadows,(unsigned long long)stats.nulls,dt,o->pixel,picked->samples,
         picked->mean.y,vs_film_variance(picked),stop?"true":"false");
     vs_film_destroy(&f);
+    vs_gpu_close(gpu);
     return ok;
 }
 
 int main(int argc,char **argv) {
     if (argc==2 && !strcmp(argv[1],"--help")) { usage(); return 0; }
-    if (argc<3 || (strcmp(argv[1],"render") && strcmp(argv[1],"trace"))) { usage(); return 2; }
+    if (argc<3 || (strcmp(argv[1],"render") && strcmp(argv[1],"trace") && strcmp(argv[1],"gpu-probe"))) { usage(); return 2; }
     VsError error={0};
     Options o;
     VsScene s={0};
@@ -185,7 +204,9 @@ int main(int argc,char **argv) {
     sigemptyset(&action.sa_mask);
     sigaction(SIGINT,&action,NULL);
     sigaction(SIGTERM,&action,NULL);
-    bool ok=!strcmp(argv[1],"render")?render(&s,&o,&error):trace(&s,&o,&error);
+    bool probe=!strcmp(argv[1],"gpu-probe");
+    if (probe) o.cfg.backend=VS_BACKEND_VULKAN;
+    bool ok=!strcmp(argv[1],"trace")?trace(&s,&o,&error):render(&s,&o,probe,&error);
     vs_scene_destroy(&s);
     if (!ok) fprintf(stderr,"vesper: %s\n",error.message);
     return !ok?1:stop?130:0;

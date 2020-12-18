@@ -26,7 +26,7 @@ float index_at(State s,uint stack_index,bool group) {
 }
 
 void contribution(uint slot,uint extra,float value,float time_ns,vec2 pulse) {
-    if (!finite1(value) || value<0. || !finite1(time_ns)) { fail(); return; }
+    if (!finite1(value) || value<0. || !finite1(time_ns)) { fault(2u); return; }
     if (value>0.) events[offset_of(slot)+extra]=vec4(value,time_ns,pulse);
 }
 
@@ -113,7 +113,7 @@ void direct_light(uint slot,State s,Material m,vec3 n,vec3 wo,float ni,float nt,
     float time=c.dist==FAR?-1.:s.point_delay.w+c.dist*ng/C_M_PER_NS;
     shadows[slot]=Shadow(vec4(origin,bound),vec4(c.wi,value),vec4(s.origin_time.w,time,c.pulse));
     uint idx=atomicAdd(counter[2],1u);
-    if (idx>=pc.count) fail(); else queue[2u*BATCH+idx]=slot;
+    if (idx>=pc.count) fault(3u); else queue[2u*BATCH+idx]=slot;
 }
 
 void shade(uint slot) {
@@ -135,6 +135,7 @@ void shade(uint slot) {
     bool front=dot(wo,normal)>0.;
     vec3 n=front?normal:-normal;
     vec3 point=s.origin_time.xyz+s.dir_beta.xyz*h.normal_t.w;
+    if (p.info.x==0u) point=p.a.xyz+p.velocity.xyz*s.origin_time.w+p.a.w*normal;
     float ni=index_at(s,s.key.w,false),ng=index_at(s,s.key.w,true);
     s.point_delay.w+=length(point-s.point_delay.xyz)*ng/C_M_PER_NS;
     s.point_delay.xyz=point;
@@ -149,13 +150,13 @@ void shade(uint slot) {
     float nt=ni,group_t=ng;
     if (m.info.x==2u || m.info.x==4u) {
         if (front) {
-            if (next>=15u || p.info.z==0u) { fail(); return; }
+            if (next>=15u || p.info.z==0u) { fault(4u); return; }
             for (uint i=1u;i<=next;++i)
-                if (primitives[s.boundary[i/4][i%4]].info.z==p.info.z) { fail(); return; }
+                if (primitives[s.boundary[i/4][i%4]].info.z==p.info.z) { fault(5u); return; }
             ++next;
             s.boundary[next/4][next%4]=h.id.x;
         } else {
-            if (next==0u || primitives[s.boundary[next/4][next%4]].info.z!=p.info.z) { fail(); return; }
+            if (next==0u || primitives[s.boundary[next/4][next%4]].info.z!=p.info.z) { fault(6u); return; }
             --next;
         }
         nt=index_at(s,next,false);
@@ -172,7 +173,7 @@ void shade(uint slot) {
         s.spectral.z*=ratio*ratio;
     }
     s.dir_beta.w*=b.weight;
-    if (!finite1(s.dir_beta.w)) { fail(); return; }
+    if (!finite1(s.dir_beta.w)) { fault(7u); return; }
     if ((pc.flags&2u)!=0u && s.key.z>=3u) {
         float probability=clamp(s.dir_beta.w*s.spectral.y*s.spectral.z,.05,.95);
         if (sample_at(s.key.xy,dim+6)>=probability) return;
@@ -186,7 +187,7 @@ void shade(uint slot) {
     paths[slot]=s;
     uint next_queue=1u-pc.parity;
     uint idx=atomicAdd(counter[next_queue],1u);
-    if (idx>=pc.count) fail(); else queue[next_queue*BATCH+idx]=slot;
+    if (idx>=pc.count) fault(8u); else queue[next_queue*BATCH+idx]=slot;
 }
 
 void shadow_path(uint slot) {

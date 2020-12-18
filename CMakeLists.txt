@@ -35,3 +35,22 @@ set_target_properties(vesper-cli PROPERTIES OUTPUT_NAME vesper)
 target_link_libraries(vesper-cli PRIVATE vesper)
 install(TARGETS vesper vesper-cli)
 install(DIRECTORY include/vesper DESTINATION include)
+
+if(VESPER_VULKAN)
+    find_package(Vulkan QUIET)
+    find_program(GLSLANG glslangValidator)
+endif()
+if(VESPER_VULKAN AND Vulkan_FOUND AND GLSLANG)
+    set(shader "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
+    set(spirv "${CMAKE_CURRENT_BINARY_DIR}/wavefront.spv")
+    set(embed "${CMAKE_CURRENT_BINARY_DIR}/generated/wavefront.inc")
+    add_custom_command(OUTPUT "${embed}"
+        COMMAND "${GLSLANG}" --target-env vulkan1.1 "-I${shader}" -V "${shader}/wavefront.comp" -o "${spirv}"
+        COMMAND "${CMAKE_COMMAND}" "-DINPUT=${spirv}" "-DOUTPUT=${embed}" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_spirv.cmake"
+        DEPENDS shaders/wavefront.comp shaders/layout.glsl shaders/geometry.glsl shaders/scatter.glsl cmake/embed_spirv.cmake
+        VERBATIM)
+    target_sources(vesper PRIVATE src/gpu.c "${embed}")
+    target_link_libraries(vesper PUBLIC Vulkan::Vulkan)
+else()
+    target_sources(vesper PRIVATE src/gpu_stub.c)
+endif()
