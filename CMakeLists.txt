@@ -47,7 +47,7 @@ if(VESPER_VULKAN AND Vulkan_FOUND AND GLSLANG)
     add_custom_command(OUTPUT "${embed}"
         COMMAND "${GLSLANG}" --target-env vulkan1.1 "-I${shader}" -V "${shader}/wavefront.comp" -o "${spirv}"
         COMMAND "${CMAKE_COMMAND}" "-DINPUT=${spirv}" "-DOUTPUT=${embed}" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_spirv.cmake"
-        DEPENDS shaders/wavefront.comp shaders/layout.glsl shaders/geometry.glsl shaders/scatter.glsl cmake/embed_spirv.cmake
+        DEPENDS shaders/wavefront.comp shaders/layout.glsl shaders/geometry.glsl shaders/scatter.glsl shaders/volume.glsl cmake/embed_spirv.cmake
         VERBATIM)
     target_sources(vesper PRIVATE src/gpu.c "${embed}")
     target_link_libraries(vesper PUBLIC Vulkan::Vulkan)

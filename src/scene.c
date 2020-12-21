@@ -77,6 +77,8 @@ bool vs_scene_add_primitive(VsScene *s, VsPrimitive p, VsError *error) {
     return true;
 }
 
+static double spectrum_max(VsSpectrum s);
+
 static bool material_valid(VsMaterial m, uint32_t media) {
     return name_valid(m.name) && (unsigned)m.kind<=VS_ROUGH_DIELECTRIC &&
         vs_spectrum_valid(m.albedo,1) && vs_spectrum_valid(m.emission,1e9) &&
@@ -84,7 +86,8 @@ static bool material_valid(VsMaterial m, uint32_t media) {
         m.roughness>=0 && m.roughness<=1 && m.ior_a>=1 && m.ior_a<=4 &&
         m.ior_b>=0 && m.ior_b<=.2 && m.medium<media && pulse_valid(m.pulse) &&
         ((m.kind!=VS_CONDUCTOR && m.kind!=VS_ROUGH_DIELECTRIC) || m.roughness>=.01) &&
-        (m.kind!=VS_CONDUCTOR || (m.eta.kind==VS_TABULATED && m.k.kind==VS_TABULATED));
+        (m.kind!=VS_CONDUCTOR || (m.eta.kind==VS_TABULATED && m.k.kind==VS_TABULATED)) &&
+        (m.kind!=VS_NULL || spectrum_max(m.emission)==0);
 }
 
 bool vs_scene_add_material(VsScene *s, VsMaterial m, VsError *error) {

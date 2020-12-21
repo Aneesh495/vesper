@@ -8,24 +8,25 @@
 
 #include "wavefront.inc"
 
-enum { BATCH=8192, GROUP=64, COUNTERS=8, DEVICE_LIMIT=64 };
-enum { CONFIG,NODES,PRIMITIVES,MATERIALS,LIGHTS,WORK,STATES,HITS,SHADOWS,EVENTS,QUEUES,BUFFERS };
+enum { BATCH=8192, GROUP=64, COUNTERS=12, DEVICE_LIMIT=64 };
+enum { CONFIG,NODES,PRIMITIVES,MATERIALS,LIGHTS,WORK,STATES,HITS,SHADOWS,EVENTS,QUEUES,MEDIA,DENSITY,BUFFERS };
 typedef struct { float x,y,z,w; } F4;
 typedef struct { uint32_t x,y,z,w; } U4;
 typedef struct { F4 lo,hi; U4 link; } GNode;
 typedef struct { F4 a,b,c,velocity; U4 info; } GPrimitive;
 typedef struct { F4 albedo[2],emission[2],eta[2],k[2],optics,pulse; U4 info; } GMaterial;
 typedef struct { F4 vector,power[2],pulse; U4 info; } GLight;
-typedef struct { F4 eye,right,up,forward,shutter; U4 counts; } GConfig;
-typedef struct { F4 origin_time,dir_beta,point_delay,previous_pdf,spectral; U4 key,boundary[4]; } GState;
+typedef struct { F4 eye,right,up,forward,shutter; U4 counts,media; } GConfig;
+typedef struct { F4 origin_time,dir_beta,point_delay,previous_pdf,spectral; U4 key,tracking,boundary[4]; } GState;
 typedef struct { F4 normal_t; U4 id; } GHit;
-typedef struct { F4 origin_dist,dir_value,time_pulse; } GShadow;
+typedef struct { F4 origin_dist,dir_value,time_pulse,point; U4 key,boundary[4]; } GShadow;
+typedef struct { F4 absorption[2],scattering[2],lo,hi,optics; U4 grid,kind; } GMedium;
 typedef struct { uint32_t pixel,sample; } Job;
 typedef struct { uint32_t stage,parity,count,seed,width,height,depth,flags,iteration; } Push;
 
 _Static_assert(sizeof(GNode)==48 && sizeof(GPrimitive)==80 && sizeof(GMaterial)==176 &&
-               sizeof(GLight)==80 && sizeof(GConfig)==96 && sizeof(GState)==160 &&
-               sizeof(GHit)==32 && sizeof(GShadow)==48 && sizeof(Job)==8 && sizeof(Push)==36,
+               sizeof(GLight)==80 && sizeof(GConfig)==112 && sizeof(GState)==176 &&
+               sizeof(GHit)==32 && sizeof(GShadow)==144 && sizeof(GMedium)==144 && sizeof(Job)==8 && sizeof(Push)==36,
                "std430 ABI");
 
 typedef struct { VkBuffer buffer; VkDeviceMemory memory; VkDeviceSize size; void *data; } Buffer;
@@ -243,10 +244,15 @@ static void spectrum(F4 dst[2],VsSpectrum s) {
 static F4 pulse(VsPulse p) { return (F4){(float)(p.start*1e9),(float)(p.width*1e9),0,0}; }
 
 static bool pack(VsGpu *g,const VsScene *s,VsError *error) {
+    uint64_t grids=0;
+    for (uint32_t i=0;i<s->medium_count;++i) {
+        const VsMedium *m=s->media+i;
+        grids+=(uint64_t)m->nx*m->ny*m->nz;
+    }
     VkDeviceSize sizes[]={sizeof(GConfig),s->bvh.node_count*sizeof(GNode),s->primitive_count*sizeof(GPrimitive),
         s->material_count*sizeof(GMaterial),s->light_count*sizeof(GLight),BATCH*sizeof(Job),
         BATCH*sizeof(GState),BATCH*sizeof(GHit),BATCH*sizeof(GShadow),
-        BATCH*(2u*g->cfg.max_depth+1u)*sizeof(F4),(COUNTERS+3u*BATCH)*sizeof(uint32_t)};
+        BATCH*(2u*g->cfg.max_depth+1u)*sizeof(F4),(COUNTERS+3u*BATCH)*sizeof(uint32_t),s->medium_count*sizeof(GMedium),grids*sizeof(float)};
     for (unsigned i=0;i<BUFFERS;++i) if (!make_buffer(g,g->buffers+i,sizes[i],error)) return false;
     const VsCamera *c=s->cameras+s->camera;
     VsVec3 forward=vs_unit(vs_sub(c->target,c->position));
@@ -254,7 +260,7 @@ static bool pack(VsGpu *g,const VsScene *s,VsError *error) {
     GConfig *conf=g->buffers[CONFIG].data;
     *conf=(GConfig){vector(c->position,c->aperture),vector(right,c->focus),vector(up,0),
         vector(forward,tan(c->vfov*VS_PI/360)),{(float)c->shutter_open,(float)c->shutter_close,0,0},
-        {s->bvh.node_count,s->primitive_count,s->light_count,s->environment}};
+        {s->bvh.node_count,s->primitive_count,s->light_count,s->environment},{s->world_medium,0,0,0}};
     GNode *nodes=g->buffers[NODES].data;
     for (uint32_t i=0;i<s->bvh.node_count;++i) {
         VsNode n=s->bvh.nodes[i];
@@ -296,6 +302,23 @@ static bool pack(VsGpu *g,const VsScene *s,VsError *error) {
         l[i].info=(U4){p->kind,p->power.kind,p->kind==VS_AREA?inverse[p->primitive]:0,0};
     }
     free(inverse);
+    GMedium *media=g->buffers[MEDIA].data;
+    float *density=g->buffers[DENSITY].data;
+    uint32_t offset=0;
+    for (uint32_t i=0;i<s->medium_count;++i) {
+        const VsMedium *p=s->media+i;
+        GMedium *item=media+i;
+        spectrum(item->absorption,p->absorption);
+        spectrum(item->scattering,p->scattering);
+        item->lo=vector(p->bounds.lo,0);
+        item->hi=vector(p->bounds.hi,0);
+        item->optics=(F4){(float)p->anisotropy,(float)(p->majorant*(1+16*FLT_EPSILON)),0,0};
+        item->grid=(U4){p->nx,p->ny,p->nz,offset};
+        item->kind=(U4){p->absorption.kind,p->scattering.kind,0,0};
+        uint32_t n=p->nx*p->ny*p->nz;
+        if (n) memcpy(density+offset,p->density,n*sizeof *density);
+        offset+=n;
+    }
     return true;
 }
 
@@ -370,10 +393,6 @@ void vs_gpu_close(VsGpu *g) {
 bool vs_gpu_open(VsGpu **out,const VsScene *s,VsRender c,VsError *error) {
     if (!out || *out || !s->identity || c.backend!=VS_BACKEND_VULKAN || !vs_render_valid(c,error))
         return vs_fail(error,"invalid Vulkan scene, configuration or output");
-    if (s->world_medium) return vs_fail(error,"Vulkan surface profile requires a vacuum world");
-    for (uint32_t i=0;i<s->material_count;++i)
-        if (s->materials[i].kind==VS_NULL || s->materials[i].medium)
-            return vs_fail(error,"Vulkan surface profile does not support medium boundaries");
     VsGpu *g=calloc(1,sizeof *g);
     if (!g) return vs_fail(error,"Vulkan context allocation failed");
     g->scene=s->identity;
@@ -474,7 +493,7 @@ static bool collect(VsGpu *g,const VsScene *s,VsFilm *f,uint32_t count,VsStats *
     if (stats) {
         const uint32_t *c=g->buffers[QUEUES].data;
         stats->samples+=count;
-        stats->rays+=c[3]; stats->shadows+=c[4];
+        stats->rays+=c[3]; stats->shadows+=c[4]; stats->nulls+=c[8];
     }
     return true;
 }

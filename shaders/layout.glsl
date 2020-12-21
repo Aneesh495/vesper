@@ -10,17 +10,21 @@ struct Material { vec4 albedo[2],emission[2],eta[2],k[2],optics,pulse; uvec4 inf
 struct Light { vec4 vector,power[2],pulse; uvec4 info; };
 struct State {
     vec4 origin_time,dir_beta,point_delay,previous_pdf,spectral;
-    uvec4 key;
+    uvec4 key,tracking;
     uvec4 boundary[4];
 };
 struct Hit { vec4 normal_t; uvec4 id; };
-struct Shadow { vec4 origin_dist,dir_value,time_pulse; };
+struct Shadow {
+    vec4 origin_dist,dir_value,time_pulse,point;
+    uvec4 key,boundary[4];
+};
+struct Medium { vec4 absorption[2],scattering[2],lo,hi,optics; uvec4 grid,kind; };
 struct Ray { vec3 o,d; float tmin,tmax,time; };
 
 layout(std430,binding=0) readonly buffer SceneConfig {
     vec4 eye,right,up,forward;
     vec4 shutter;
-    uvec4 counts;
+    uvec4 counts,media;
 } scene;
 layout(std430,binding=1) readonly buffer Nodes { Node nodes[]; };
 layout(std430,binding=2) readonly buffer Primitives { Primitive primitives[]; };
@@ -31,7 +35,9 @@ layout(std430,binding=6) buffer States { State paths[]; };
 layout(std430,binding=7) buffer Hits { Hit hits[]; };
 layout(std430,binding=8) buffer Shadows { Shadow shadows[]; };
 layout(std430,binding=9) buffer Events { vec4 events[]; };
-layout(std430,binding=10) buffer Queues { uint counter[8]; uint queue[]; };
+layout(std430,binding=10) buffer Queues { uint counter[12]; uint queue[]; };
+layout(std430,binding=11) readonly buffer Media { Medium media[]; };
+layout(std430,binding=12) readonly buffer Densities { float density[]; };
 layout(push_constant) uniform Push {
     uint stage,parity,count,seed,width,height,depth,flags,iteration;
 } pc;

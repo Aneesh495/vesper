@@ -4,6 +4,7 @@ layout(local_size_x=64) in;
 #include "layout.glsl"
 #include "geometry.glsl"
 #include "scatter.glsl"
+#include "volume.glsl"
 
 float mis(float a,float b) { float r=b/a; return 1./(1.+r*r); }
 uint offset_of(uint slot) { return slot*(2u*pc.depth+1u)+2u*pc.iteration; }
@@ -17,12 +18,35 @@ float area_pdf(Primitive p,vec3 wi,vec3 n,float distance) {
     return cosine>0.?distance*distance/(cosine*area(p)*float(scene.counts.z)):0.;
 }
 
-float index_at(State s,uint stack_index,bool group) {
-    if (stack_index==0) return 1.;
-    uint id=s.boundary[stack_index/4][stack_index%4];
-    Material m=materials[primitives[id].info.y];
-    float um=s.spectral.x*.001;
-    return m.optics.y+(group?3.:1.)*m.optics.z/(um*um);
+float index_at(uvec4 stack[4],uint n,float nm,bool group) {
+    while (n>0u) {
+        Material m=materials[primitives[stack[n/4][n%4]].info.y];
+        if (m.info.x!=3u) {
+            float um=nm*.001;
+            return m.optics.y+(group?3.:1.)*m.optics.z/(um*um);
+        }
+        --n;
+    }
+    return 1.;
+}
+
+uint medium_at(uvec4 stack[4],uint n) {
+    return n==0u?scene.media.x:materials[primitives[stack[n/4][n%4]].info.y].info.w;
+}
+
+bool cross_at(inout uvec4 stack[4],inout uint n,uint primitive,bool front) {
+    uint id=primitives[primitive].info.z;
+    if (front) {
+        if (n>=15u || id==0u) { fault(4u); return false; }
+        for (uint i=1u;i<=n;++i)
+            if (primitives[stack[i/4][i%4]].info.z==id) { fault(5u); return false; }
+        ++n;
+        stack[n/4][n%4]=primitive;
+    } else {
+        if (n==0u || primitives[stack[n/4][n%4]].info.z!=id) { fault(6u); return false; }
+        --n;
+    }
+    return true;
 }
 
 void contribution(uint slot,uint extra,float value,float time_ns,vec2 pulse) {
@@ -47,6 +71,7 @@ void generate(uint slot) {
     s.previous_pdf=vec4(o,0);
     s.spectral=vec4(w,1.,1.);
     s.key=uvec4(k,0,0);
+    s.tracking=uvec4(0);
     for (uint i=0;i<4;++i) s.boundary[i]=uvec4(0);
     paths[slot]=s;
     queue[slot]=slot;
@@ -54,8 +79,38 @@ void generate(uint slot) {
 
 void intersect_path(uint slot) {
     State s=paths[slot];
-    hits[slot]=traverse(Ray(s.origin_time.xyz,s.dir_beta.xyz,0.,FAR,s.origin_time.w));
-    atomicAdd(counter[3],1u);
+    for (;s.tracking.x<128u;) {
+        Ray ray=Ray(s.origin_time.xyz,s.dir_beta.xyz,0.,FAR,s.origin_time.w);
+        Hit h=traverse(ray);
+        atomicAdd(counter[3],1u);
+        uint medium=medium_at(s.boundary,s.key.w);
+        uint dim=0x40000000u+s.tracking.x*2u*TRACK_LIMIT;
+        ++s.tracking.x;
+        float t,albedo,nm=s.spectral.x;
+        bool collided=collision_at(media[medium],ray,h.normal_t.w,nm,s.key.xy,dim,t,albedo);
+        if (h.id.x==NONE && !collided) { hits[slot]=h; paths[slot]=s; return; }
+        vec3 point;
+        if (collided) point=ray.o+ray.d*t;
+        else {
+            Primitive p=primitives[h.id.x];
+            point=p.info.x==0u?p.a.xyz+p.velocity.xyz*ray.time+p.a.w*h.normal_t.xyz:
+                ray.o+ray.d*h.normal_t.w;
+        }
+        float ng=index_at(s.boundary,s.key.w,nm,true);
+        s.point_delay.w+=length(point-s.point_delay.xyz)*ng/C_M_PER_NS;
+        s.point_delay.xyz=point;
+        if (collided) {
+            hits[slot]=Hit(vec4(albedo,media[medium].optics.x,0.,t),uvec4(NONE,1,0,0));
+            paths[slot]=s;
+            return;
+        }
+        if (materials[primitives[h.id.x].info.y].info.x!=3u) {
+            hits[slot]=h; paths[slot]=s; return;
+        }
+        if (!cross_at(s.boundary,s.key.w,h.id.x,dot(ray.d,h.normal_t.xyz)<0.)) return;
+        s.origin_time.xyz=offset_ray(point,h.normal_t.xyz,ray.d);
+    }
+    fault(12u);
 }
 
 struct Connection { vec3 wi; float dist,le,pdf; bool delta; vec2 pulse; };
@@ -95,23 +150,29 @@ Connection connect_light(vec3 from,float time,float nm,uint index,vec2 u) {
     return c;
 }
 
-void direct_light(uint slot,State s,Material m,vec3 n,vec3 wo,float ni,float nt,float group_t,uint dim) {
-    if (scene.counts.z==0) return;
+void direct_light(uint slot,State s,Material m,vec3 n,vec3 wo,float ni,float nt,
+                  uvec4 next_stack[4],uint next,uint dim,bool volume,float g) {
+    if (scene.counts.z==0u) return;
     uvec2 key=s.key.xy;
     uint light=min(scene.counts.z-1u,uint(sample_at(key,dim)*float(scene.counts.z)));
     Connection c=connect_light(s.point_delay.xyz,s.origin_time.w,s.spectral.x,light,
                                vec2(sample_at(key,dim+1),sample_at(key,dim+2)));
     if (!(c.pdf>0. && c.le>0.)) return;
-    vec2 b=bsdf(m,s.spectral.x,n,wo,c.wi,ni,nt);
+    float cosine=volume?1.:dot(n,c.wi);
+    vec2 b=volume?vec2(phase_at(dot(s.dir_beta.xyz,c.wi),g)):bsdf(m,s.spectral.x,n,wo,c.wi,ni,nt);
     if (!(b.x>0.)) return;
-    float weight=c.delta?1.:mis(c.pdf,b.y), cosine=dot(n,c.wi);
+    float weight=c.delta?1.:mis(c.pdf,b.y);
     float value=s.dir_beta.w*c.le*b.x*abs(cosine)*weight/c.pdf;
     if (!(value>0.)) return;
-    vec3 origin=offset_ray(s.point_delay.xyz,n,c.wi);
-    float bound=c.dist==FAR?FAR:max(0.,c.dist-16e-7*(c.dist+length(origin)));
-    float ng=cosine<0.?group_t:index_at(s,s.key.w,true);
-    float time=c.dist==FAR?-1.:s.point_delay.w+c.dist*ng/C_M_PER_NS;
-    shadows[slot]=Shadow(vec4(origin,bound),vec4(c.wi,value),vec4(s.origin_time.w,time,c.pulse));
+    vec3 origin=volume?s.point_delay.xyz:offset_ray(s.point_delay.xyz,n,c.wi);
+    Shadow sh;
+    sh.origin_dist=vec4(origin,c.dist);
+    sh.dir_value=vec4(c.wi,value);
+    sh.time_pulse=vec4(s.origin_time.w,s.point_delay.w,c.pulse);
+    sh.point=vec4(s.point_delay.xyz,s.spectral.x);
+    sh.key=uvec4(key,cosine<0.?next:s.key.w,s.tracking.x-1u);
+    for (uint i=0u;i<4u;++i) sh.boundary[i]=cosine<0.?next_stack[i]:s.boundary[i];
+    shadows[slot]=sh;
     uint idx=atomicAdd(counter[2],1u);
     if (idx>=pc.count) fault(3u); else queue[2u*BATCH+idx]=slot;
 }
@@ -120,8 +181,8 @@ void shade(uint slot) {
     State s=paths[slot];
     Hit h=hits[slot];
     float nm=s.spectral.x;
-    bool nee=(pc.flags&1u)!=0u;
-    if (h.id.x==NONE) {
+    bool nee=(pc.flags&1u)!=0u,volume=h.id.y!=0u;
+    if (!volume && h.id.x==NONE) {
         if (scene.counts.w!=NONE) {
             Light l=lights[scene.counts.w];
             float w=nee && s.spectral.w==0.?mis(s.previous_pdf.w,1./(4.*PI*float(scene.counts.z))):1.;
@@ -129,46 +190,45 @@ void shade(uint slot) {
         }
         return;
     }
-    Primitive p=primitives[h.id.x];
-    Material m=materials[p.info.y];
-    vec3 wo=-s.dir_beta.xyz,normal=h.normal_t.xyz;
-    bool front=dot(wo,normal)>0.;
-    vec3 n=front?normal:-normal;
-    vec3 point=s.origin_time.xyz+s.dir_beta.xyz*h.normal_t.w;
-    if (p.info.x==0u) point=p.a.xyz+p.velocity.xyz*s.origin_time.w+p.a.w*normal;
-    float ni=index_at(s,s.key.w,false),ng=index_at(s,s.key.w,true);
-    s.point_delay.w+=length(point-s.point_delay.xyz)*ng/C_M_PER_NS;
-    s.point_delay.xyz=point;
-    float le=front?spectrum(m.emission,m.info.z,nm):0.;
-    if (le>0.) {
-        float pdf=area_pdf(p,s.dir_beta.xyz,normal,length(point-s.previous_pdf.xyz));
-        float w=nee && s.spectral.w==0.?mis(s.previous_pdf.w,pdf):1.;
-        contribution(slot,0,s.dir_beta.w*w*le,s.point_delay.w,m.pulse.xy);
-    }
-    if (s.key.z>=pc.depth) return;
+    vec3 wo=-s.dir_beta.xyz,point=s.point_delay.xyz,n=vec3(0);
+    float ni=index_at(s.boundary,s.key.w,nm,false),nt=ni,g=0.;
     uint next=s.key.w;
-    float nt=ni,group_t=ng;
-    if (m.info.x==2u || m.info.x==4u) {
-        if (front) {
-            if (next>=15u || p.info.z==0u) { fault(4u); return; }
-            for (uint i=1u;i<=next;++i)
-                if (primitives[s.boundary[i/4][i%4]].info.z==p.info.z) { fault(5u); return; }
-            ++next;
-            s.boundary[next/4][next%4]=h.id.x;
-        } else {
-            if (next==0u || primitives[s.boundary[next/4][next%4]].info.z!=p.info.z) { fault(6u); return; }
-            --next;
+    uvec4 next_stack[4]=s.boundary;
+    Material m;
+    if (volume) {
+        s.dir_beta.w*=h.normal_t.x;
+        g=h.normal_t.y;
+        m.info=uvec4(0);
+    } else {
+        Primitive p=primitives[h.id.x];
+        m=materials[p.info.y];
+        vec3 normal=h.normal_t.xyz;
+        bool front=dot(wo,normal)>0.;
+        n=front?normal:-normal;
+        float le=front?spectrum(m.emission,m.info.z,nm):0.;
+        if (le>0.) {
+            float pdf=area_pdf(p,s.dir_beta.xyz,normal,length(point-s.previous_pdf.xyz));
+            float w=nee && s.spectral.w==0.?mis(s.previous_pdf.w,pdf):1.;
+            contribution(slot,0,s.dir_beta.w*w*le,s.point_delay.w,m.pulse.xy);
         }
-        nt=index_at(s,next,false);
-        group_t=index_at(s,next,true);
+        if (m.info.x==2u || m.info.x==4u) {
+            if (!cross_at(next_stack,next,h.id.x,front)) return;
+            nt=index_at(next_stack,next,nm,false);
+        }
     }
+    if (s.key.z>=pc.depth || s.dir_beta.w==0.) return;
     uint dim=6u+12u*s.key.z;
-    if (nee) direct_light(slot,s,m,n,wo,ni,nt,group_t,dim);
-    Scatter b=scatter_at(m,nm,n,wo,ni,nt,
-                         vec3(sample_at(s.key.xy,dim+3),sample_at(s.key.xy,dim+4),sample_at(s.key.xy,dim+5)));
+    if (nee) direct_light(slot,s,m,n,wo,ni,nt,next_stack,next,dim,volume,g);
+    vec3 u=vec3(sample_at(s.key.xy,dim+3),sample_at(s.key.xy,dim+4),sample_at(s.key.xy,dim+5));
+    Scatter b;
+    if (volume) {
+        vec3 wi=phase_direction(s.dir_beta.xyz,g,u.xy);
+        b=Scatter(wi,phase_at(dot(s.dir_beta.xyz,wi),g),1.,false,false);
+    } else b=scatter_at(m,nm,n,wo,ni,nt,u);
     if (!(b.pdf>0. && b.weight>0.)) return;
     if (b.transmit) {
         s.key.w=next;
+        s.boundary=next_stack;
         float ratio=nt/ni;
         s.spectral.z*=ratio*ratio;
     }
@@ -182,7 +242,7 @@ void shade(uint slot) {
     s.spectral.w=b.delta?1.:0.;
     s.previous_pdf=vec4(point,b.pdf);
     s.dir_beta.xyz=normalize(b.wi);
-    s.origin_time.xyz=offset_ray(point,n,s.dir_beta.xyz);
+    s.origin_time.xyz=volume?point:offset_ray(point,n,s.dir_beta.xyz);
     ++s.key.z;
     paths[slot]=s;
     uint next_queue=1u-pc.parity;
@@ -192,9 +252,31 @@ void shade(uint slot) {
 
 void shadow_path(uint slot) {
     Shadow s=shadows[slot];
-    atomicAdd(counter[4],1u);
-    Hit h=traverse(Ray(s.origin_dist.xyz,s.dir_value.xyz,0.,s.origin_dist.w,s.time_pulse.x));
-    if (h.id.x==NONE) contribution(slot,1,s.dir_value.w,s.time_pulse.y,s.time_pulse.zw);
+    float tr=1.,nm=s.point.w,arrival=s.time_pulse.y;
+    vec3 origin=s.origin_dist.xyz,d=s.dir_value.xyz,point=s.point.xyz;
+    bool timed=s.origin_dist.w!=FAR;
+    vec3 end=point+(timed?s.origin_dist.w:0.)*d;
+    for (uint i=0u;i<64u;++i) {
+        float distance=timed?max(0.,dot(end-origin,d)):FAR;
+        float tolerance=timed?16e-7*(distance+length(origin)+length(end)):0.;
+        Ray ray=Ray(origin,d,0.,max(0.,distance-tolerance),s.time_pulse.x);
+        Hit h=traverse(ray);
+        atomicAdd(counter[4],1u);
+        uint medium=medium_at(s.boundary,s.key.z);
+        uint dim=0x80000000u+(64u*s.key.w+i)*TRACK_LIMIT;
+        tr*=transmittance_at(media[medium],ray,h.id.x==NONE?distance:h.normal_t.w,nm,s.key.xy,dim);
+        if (tr==0.) return;
+        vec3 next=h.id.x==NONE?end:ray.o+ray.d*h.normal_t.w;
+        if (timed) arrival+=length(next-point)*index_at(s.boundary,s.key.z,nm,true)/C_M_PER_NS;
+        if (h.id.x==NONE) { contribution(slot,1,s.dir_value.w*tr,timed?arrival:-1.,s.time_pulse.zw); return; }
+        Primitive p=primitives[h.id.x];
+        if (materials[p.info.y].info.x!=3u) return;
+        if (!cross_at(s.boundary,s.key.z,h.id.x,dot(d,h.normal_t.xyz)<0.)) return;
+        if (p.info.x==0u) next=p.a.xyz+p.velocity.xyz*ray.time+p.a.w*h.normal_t.xyz;
+        origin=offset_ray(next,h.normal_t.xyz,d);
+        point=next;
+    }
+    fault(13u);
 }
 
 void main() {
