@@ -1,4 +1,4 @@
-#include "vesper/scene.h"
+#include "assets.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -6,6 +6,7 @@
 #include <string.h>
 
 typedef struct {
+    const char *file;
     char *token[24];
     unsigned count,line;
     VsScene *scene;
@@ -139,6 +140,35 @@ static bool light(Parser *p, VsLightKind kind, bool line) {
     return vs_scene_add_light(p->scene,l,&p->detail);
 }
 
+static bool grid(Parser *p) {
+    VsMedium m={0};
+    double a[13];
+    char path[4096];
+    if (!name(p,m.name) || !numbers(p,3,13,a) ||
+        !vs_asset_path(path,p->file,p->token[2],&p->detail)) return false;
+    for (unsigned i=4;i<7;++i)
+        if (a[i]<2 || a[i]>128 || floor(a[i])!=a[i]) return vs_fail(&p->detail,"grid dimension range");
+    m.absorption=vs_flat(a[0]); m.scattering=vs_flat(a[1]);
+    m.anisotropy=a[2]; m.majorant=a[3];
+    m.nx=(uint32_t)a[4]; m.ny=(uint32_t)a[5]; m.nz=(uint32_t)a[6];
+    m.bounds=(VsBounds){triple(a+7),triple(a+10)};
+    return vs_load_grid(p->scene,m,path,&p->detail);
+}
+
+static bool mesh(Parser *p) {
+    char path[4096];
+    double a[10];
+    if (!numbers(p,3,10,a) || !vs_asset_path(path,p->file,p->token[2],&p->detail)) return false;
+    uint32_t id=lookup(p,p->token[1],false);
+    if (id==UINT32_MAX) return false;
+    if (a[0]<=0 || a[1]<=0 || a[2]<=0 || a[9]<0 || a[9]>UINT32_MAX || floor(a[9])!=a[9])
+        return vs_fail(&p->detail,"invalid OBJ scale or boundary ID");
+    VsPrimitive prim={.shape=VS_TRIANGLE,.material=id,.velocity=triple(a+6),.boundary=(uint32_t)a[9]};
+    if (p->scene->materials[id].kind>=VS_DIELECTRIC && !prim.boundary)
+        return vs_fail(&p->detail,"transmitting mesh requires a nonzero boundary ID");
+    return vs_load_obj(p->scene,prim,triple(a),triple(a+3),path,&p->detail);
+}
+
 static bool command(Parser *p) {
     const char *op=p->token[0];
     if (!strcmp(op,"camera")) return camera(p);
@@ -165,6 +195,8 @@ static bool command(Parser *p) {
     if (!strcmp(op,"distant")) return light(p,VS_DISTANT,false);
     if (!strcmp(op,"environment")) return light(p,VS_ENVIRONMENT,false);
     if (!strcmp(op,"medium")) return fog(p);
+    if (!strcmp(op,"grid")) return grid(p);
+    if (!strcmp(op,"obj")) return mesh(p);
     if (!strcmp(op,"world")) {
         if (p->count!=2) return vs_fail(&p->detail,"expected medium name");
         uint32_t id=lookup(p,p->token[1],true);
@@ -204,7 +236,7 @@ bool vs_scene_load(VsScene *s, const char *path, VsError *error) {
     FILE *file=fopen(path,"rb");
     if (!file) return vs_fail(error,"could not open %s",path);
     VsScene next={0};
-    Parser p={.scene=&next};
+    Parser p={.scene=&next,.file=path};
     bool ok=vs_scene_init(&next,&p.detail),header=false;
     char line[4096];
     while (ok && fgets(line,sizeof line,file)) {

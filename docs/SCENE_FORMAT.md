@@ -25,3 +25,8 @@ The first directive is **vesper 1 metres**. Whitespace separates tokens and a ha
 | response | box instrument-response width |
 
 Use a unique positive boundary ID for each closed transmitting solid and orient its faces outwards. Its faces share an ID and material. Opaque surfaces use boundary zero. Emission follows the front geometric normal.
+
+## Relative assets
+
+- **obj** takes material name, relative OBJ path, positive scale XYZ, translation XYZ, shutter displacement XYZ and boundary ID. The subset accepts position vertices and triangular faces with positive or negative vertex indices. Reusing the same asset with another transform compiles another set of world-space primitives. UVs, normals, polygons and glTF input require a separate importer.
+- **grid** takes medium name, relative density path, absorption, scattering, anisotropy, majorant, integer grid dimensions XYZ and the lower and upper bounds XYZ. The density file contains whitespace-separated values in x-fastest order. The grid uses trilinear interpolation with zero density outside its world-space bounds. Its majorant bounds the product of maximum node density and the spectral extinction bound.
