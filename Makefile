@@ -34,3 +34,7 @@ data:
 .PHONY: gpu-probe
 gpu-probe: build
 	"$(BUILD_DIR)/vesper" gpu-probe scenes/afterglow.vs --width 32 --height 24 --spp 8 --depth 4 --bins 128 --step-ns .5
+
+.PHONY: inverse
+inverse: build
+	"$(BUILD_DIR)/vesper-inverse" scenes/inverse-extinction.csv
