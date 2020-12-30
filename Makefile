@@ -38,3 +38,13 @@ gpu-probe: build
 .PHONY: inverse
 inverse: build
 	"$(BUILD_DIR)/vesper-inverse" scenes/inverse-extinction.csv
+
+.PHONY: spectral-check bsdf-check volume-check stress
+spectral-check: build
+	"$(BUILD_DIR)/vesper-numerical-check" spectral
+bsdf-check: build
+	"$(BUILD_DIR)/vesper-numerical-check" bsdf
+volume-check: build
+	"$(BUILD_DIR)/vesper-numerical-check" volume
+stress: build
+	"$(BUILD_DIR)/vesper-geometry-check" 1000000

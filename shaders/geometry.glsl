@@ -23,12 +23,13 @@ bool primitive_hit(Primitive p,Ray ray,out vec4 result) {
         vec3 q=local-p.a.xyz;
         float a=dot(ray.d,ray.d),b=dot(q,ray.d);
         vec3 nearest=q-(b/a)*ray.d;
-        float h=p.a.w*p.a.w-dot(nearest,nearest);
+        float miss=length(nearest);
+        float h=(p.a.w-miss)*(p.a.w+miss);
         if (h<0) return false;
         float r=sqrt(a*h);
         float d=-b-(b>=0?r:-r);
-        float other=d==0?0.:(dot(q,q)-p.a.w*p.a.w)/d;
         float primary=d/a;
+        float other=h==0.?primary:(dot(q,q)-p.a.w*p.a.w)/d;
         t=min(primary,other);
         if (t<ray.tmin || t>ray.tmax) t=max(primary,other);
         normal=normalize(q+t*ray.d);

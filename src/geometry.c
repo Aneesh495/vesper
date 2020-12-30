@@ -61,10 +61,11 @@ static bool sphere(const VsPrimitive *p, VsRay ray, VsHit *h) {
     double b=vs_dot(ray.direction,delta);
     double c=vs_dot(delta,delta)-p->radius*p->radius;
     VsVec3 closest=vs_sub(delta,vs_mul(ray.direction,b/a));
-    double height=p->radius*p->radius-vs_dot(closest,closest);
+    double miss=vs_length(closest);
+    double height=(p->radius-miss)*(p->radius+miss);
     if (!(height>=0) || a==0) return false;
     double q=-b-copysign(sqrt(a*height),b);
-    double t0=q/a, t1=q==0?t0:c/q;
+    double t0=q/a, t1=height==0?t0:c/q;
     h->t=fmin(t0,t1);
     if (h->t<ray.min || h->t>ray.max) h->t=fmax(t0,t1);
     if (!(h->t>=ray.min && h->t<=ray.max)) return false;
