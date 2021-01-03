@@ -48,3 +48,8 @@ volume-check: build
 	"$(BUILD_DIR)/vesper-numerical-check" volume
 stress: build
 	"$(BUILD_DIR)/vesper-geometry-check" 1000000
+
+.PHONY: workbench
+WORKBENCH_BACKEND ?= cpu
+workbench: build
+	"$(BUILD_DIR)/vesper-workbench" "$(SCENE)" "$(WORKBENCH_BACKEND)"
