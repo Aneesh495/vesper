@@ -53,3 +53,8 @@ stress: build
 WORKBENCH_BACKEND ?= cpu
 workbench: build
 	"$(BUILD_DIR)/vesper-workbench" "$(SCENE)" "$(WORKBENCH_BACKEND)"
+
+.PHONY: scene-gallery
+BACKEND ?= cpu
+scene-gallery: build
+	sh scripts/gallery.sh "$(BUILD_DIR)/vesper" "$(OUT)" "$(BACKEND)" "$(SIZE)" "$(HEIGHT)" "$(SPP)"
