@@ -58,3 +58,7 @@ workbench: build
 BACKEND ?= cpu
 scene-gallery: build
 	sh scripts/gallery.sh "$(BUILD_DIR)/vesper" "$(OUT)" "$(BACKEND)" "$(SIZE)" "$(HEIGHT)" "$(SPP)"
+
+.PHONY: temporal-check
+temporal-check: build
+	"$(BUILD_DIR)/vesper-temporal-check"
