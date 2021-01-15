@@ -62,3 +62,8 @@ scene-gallery: build
 .PHONY: temporal-check
 temporal-check: build
 	"$(BUILD_DIR)/vesper-temporal-check"
+
+.PHONY: bench
+BENCH_SPP ?= 16
+bench: build
+	"$(BUILD_DIR)/vesper-benchmark" "$(BENCH_SPP)"
