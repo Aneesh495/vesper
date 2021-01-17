@@ -67,3 +67,12 @@ temporal-check: build
 BENCH_SPP ?= 16
 bench: build
 	"$(BUILD_DIR)/vesper-benchmark" "$(BENCH_SPP)"
+
+.PHONY: transient-gallery
+transient-gallery: build
+	sh scripts/transient_gallery.sh "$(BUILD_DIR)/vesper" "$(OUT)" "$(BACKEND)" "$(SPP)"
+
+.PHONY: inverse-recovery
+inverse-recovery: build
+	mkdir -p run
+	python3 scripts/inverse_recovery.py "$(BUILD_DIR)/vesper-inverse" "$$(mktemp -u run/inverse.XXXXXX)"
