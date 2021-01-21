@@ -93,8 +93,7 @@ void intersect_path(uint slot) {
         if (collided) point=ray.o+ray.d*t;
         else {
             Primitive p=primitives[h.id.x];
-            point=p.info.x==0u?p.a.xyz+p.velocity.xyz*ray.time+p.a.w*h.normal_t.xyz:
-                ray.o+ray.d*h.normal_t.w;
+            point=surface_point(p,ray,h.normal_t);
         }
         float ng=index_at(s.boundary,s.key.w,nm,true);
         s.point_delay.w+=length(point-s.point_delay.xyz)*ng/C_M_PER_NS;
@@ -108,7 +107,7 @@ void intersect_path(uint slot) {
             hits[slot]=h; paths[slot]=s; return;
         }
         if (!cross_at(s.boundary,s.key.w,h.id.x,dot(ray.d,h.normal_t.xyz)<0.)) return;
-        s.origin_time.xyz=offset_ray(point,h.normal_t.xyz,ray.d);
+        s.origin_time.xyz=offset_surface(primitives[h.id.x],point,h.normal_t.xyz,ray.d);
     }
     fault(12u);
 }
@@ -151,7 +150,7 @@ Connection connect_light(vec3 from,float time,float nm,uint index,vec2 u) {
 }
 
 void direct_light(uint slot,State s,Material m,vec3 n,vec3 wo,float ni,float nt,
-                  uvec4 next_stack[4],uint next,uint dim,bool volume,float g) {
+                  uvec4 next_stack[4],uint next,uint dim,bool volume,float g,uint primitive) {
     if (scene.counts.z==0u) return;
     uvec2 key=s.key.xy;
     uint light=min(scene.counts.z-1u,uint(sample_at(key,dim)*float(scene.counts.z)));
@@ -164,7 +163,7 @@ void direct_light(uint slot,State s,Material m,vec3 n,vec3 wo,float ni,float nt,
     float weight=c.delta?1.:mis(c.pdf,b.y);
     float value=s.dir_beta.w*c.le*b.x*abs(cosine)*weight/c.pdf;
     if (!(value>0.)) return;
-    vec3 origin=volume?s.point_delay.xyz:offset_ray(s.point_delay.xyz,n,c.wi);
+    vec3 origin=volume?s.point_delay.xyz:offset_surface(primitives[primitive],s.point_delay.xyz,n,c.wi);
     Shadow sh;
     sh.origin_dist=vec4(origin,c.dist);
     sh.dir_value=vec4(c.wi,value);
@@ -218,7 +217,7 @@ void shade(uint slot) {
     }
     if (s.key.z>=pc.depth || s.dir_beta.w==0.) return;
     uint dim=6u+12u*s.key.z;
-    if (nee) direct_light(slot,s,m,n,wo,ni,nt,next_stack,next,dim,volume,g);
+    if (nee) direct_light(slot,s,m,n,wo,ni,nt,next_stack,next,dim,volume,g,h.id.x);
     vec3 u=vec3(sample_at(s.key.xy,dim+3),sample_at(s.key.xy,dim+4),sample_at(s.key.xy,dim+5));
     Scatter b;
     if (volume) {
@@ -242,7 +241,7 @@ void shade(uint slot) {
     s.spectral.w=b.delta?1.:0.;
     s.previous_pdf=vec4(point,b.pdf);
     s.dir_beta.xyz=normalize(b.wi);
-    s.origin_time.xyz=volume?point:offset_ray(point,n,s.dir_beta.xyz);
+    s.origin_time.xyz=volume?point:offset_surface(primitives[h.id.x],point,n,s.dir_beta.xyz);
     ++s.key.z;
     paths[slot]=s;
     uint next_queue=1u-pc.parity;
@@ -272,8 +271,8 @@ void shadow_path(uint slot) {
         Primitive p=primitives[h.id.x];
         if (materials[p.info.y].info.x!=3u) return;
         if (!cross_at(s.boundary,s.key.z,h.id.x,dot(d,h.normal_t.xyz)<0.)) return;
-        if (p.info.x==0u) next=p.a.xyz+p.velocity.xyz*ray.time+p.a.w*h.normal_t.xyz;
-        origin=offset_ray(next,h.normal_t.xyz,d);
+        next=surface_point(p,ray,h.normal_t);
+        origin=offset_surface(p,next,h.normal_t.xyz,d);
         point=next;
     }
     fault(13u);

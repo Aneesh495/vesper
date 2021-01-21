@@ -469,9 +469,11 @@ static bool submit(VsGpu *g,uint32_t count,VsError *error) {
         !check(vkWaitForFences(g->device,1,&g->fence,VK_TRUE,UINT64_C(60000000000)),"GPU fence",error))
         return false;
     const uint32_t *c=g->buffers[QUEUES].data;
+    const Job *jobs=g->buffers[WORK].data;
+    Job failed=c[7]<count?jobs[c[7]]:(Job){0};
     return (c[3]>=count && !c[5] && !g->validation_errors) ||
-        vs_fail(error,"Vulkan dispatch failed: %u useful rays, %u shader errors (first code %u, lane %u), %u validation errors",
-                c[3],c[5],c[6],c[7],g->validation_errors);
+        vs_fail(error,"Vulkan dispatch failed: %u rays, %u shader errors (code %u, pixel %u sample %u depth %u), %u validation errors",
+                c[3],c[5],c[6],failed.pixel,failed.sample,c[9],g->validation_errors);
 }
 
 static bool collect(VsGpu *g,const VsScene *s,VsFilm *f,uint32_t count,VsStats *stats,VsError *error) {

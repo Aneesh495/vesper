@@ -99,3 +99,17 @@ vec3 offset_ray(vec3 p,vec3 n,vec3 d) {
     if (dot(n,d)<0) n=-n;
     return p+n*(8e-7*max(1e-4,max(abs(p.x),max(abs(p.y),abs(p.z)))));
 }
+
+vec3 surface_point(Primitive p,Ray ray,vec4 hit) {
+    vec3 a=p.a.xyz+p.velocity.xyz*ray.time;
+    vec3 n=hit.xyz;
+    if (p.info.x==0u) return a+p.a.w*n;
+    vec3 point=ray.o+ray.d*hit.w;
+    return point+n*dot(a-point,n);
+}
+
+vec3 offset_surface(Primitive p,vec3 point,vec3 n,vec3 d) {
+    float span=p.info.x==0u?p.a.w:max(length(p.b.xyz-p.a.xyz),length(p.c.xyz-p.a.xyz));
+    if (dot(n,d)<0.) n=-n;
+    return point+n*(16e-7*max(span,max(abs(point.x),max(abs(point.y),abs(point.z)))));
+}

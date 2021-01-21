@@ -45,6 +45,10 @@ layout(push_constant) uniform Push {
 void fault(uint code) {
     atomicAdd(counter[5],1u);
     uint previous=atomicCompSwap(counter[6],0u,code);
-    if (previous==0u) counter[7]=gl_GlobalInvocationID.x;
+    if (previous==0u) {
+        uint lane=gl_GlobalInvocationID.x;
+        counter[7]=pc.stage==3u?queue[2u*BATCH+lane]:pc.stage==0u?lane:queue[pc.parity*BATCH+lane];
+        counter[9]=pc.iteration;
+    }
 }
 bool finite1(float x) { return !isnan(x) && !isinf(x); }
