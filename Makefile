@@ -76,3 +76,12 @@ transient-gallery: build
 inverse-recovery: build
 	mkdir -p run
 	python3 scripts/inverse_recovery.py "$(BUILD_DIR)/vesper-inverse" "$$(mktemp -u run/inverse.XXXXXX)"
+
+PROFILE ?= diagnostic
+.PHONY: acceptance verify release
+acceptance: build
+	python3 scripts/campaign.py --build-dir "$(BUILD_DIR)" --profile "$(PROFILE)" --run-id "$(RUN_ID)"
+verify:
+	python3 scripts/verify.py "$(EVIDENCE)" --build-dir "$(BUILD_DIR)"
+release:
+	python3 scripts/verify.py "$(EVIDENCE)" --build-dir "$(BUILD_DIR)" --require-full
