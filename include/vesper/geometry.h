@@ -59,7 +59,7 @@ VsBounds vs_primitive_bounds(const VsPrimitive *p);
 bool vs_bounds_hit(VsBounds bounds, VsRay ray, double *entry);
 bool vs_primitive_valid(const VsPrimitive *p);
 bool vs_intersect(const VsPrimitive *p, VsRay ray, VsHit *hit);
-VsVec3 vs_offset(VsVec3 p, VsVec3 normal, VsVec3 outgoing);
+VsVec3 vs_offset(const VsPrimitive *primitive,VsVec3 p,VsVec3 normal,VsVec3 outgoing);
 bool vs_bvh_build(VsBvh *bvh, const VsPrimitive *p, uint32_t count);
 bool vs_bvh_validate(const VsBvh *bvh, const VsPrimitive *p);
 void vs_bvh_destroy(VsBvh *bvh);

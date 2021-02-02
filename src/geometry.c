@@ -108,14 +108,21 @@ bool vs_intersect(const VsPrimitive *p, VsRay ray, VsHit *hit) {
     local.origin=vs_sub(ray.origin,vs_mul(p->velocity,ray.time));
     VsHit h={0};
     if (!(p->shape==VS_SPHERE?sphere(p,local,&h):triangle(p,local,&h))) return false;
-    h.point=vs_add(ray.origin,vs_mul(ray.direction,h.t));
+    VsVec3 a=vs_add(p->a,vs_mul(p->velocity,ray.time));
+    if (p->shape==VS_SPHERE) h.point=vs_add(a,vs_mul(h.normal,p->radius));
+    else {
+        h.point=vs_add(ray.origin,vs_mul(ray.direction,h.t));
+        h.point=vs_add(h.point,vs_mul(h.normal,vs_dot(vs_sub(a,h.point),h.normal)));
+    }
     h.front=vs_dot(ray.direction,h.normal)<0;
     *hit=h;
     return true;
 }
 
-VsVec3 vs_offset(VsVec3 p, VsVec3 normal, VsVec3 outgoing) {
+VsVec3 vs_offset(const VsPrimitive *prim,VsVec3 p,VsVec3 normal,VsVec3 outgoing) {
     if (vs_dot(normal,outgoing)<0) normal=vs_mul(normal,-1);
     double scale=fmax(fabs(p.x),fmax(fabs(p.y),fabs(p.z)));
-    return vs_add(p,vs_mul(normal,32*DBL_EPSILON*fmax(1e-8,scale)));
+    double span=prim->shape==VS_SPHERE?prim->radius:
+        fmax(vs_length(vs_sub(prim->b,prim->a)),vs_length(vs_sub(prim->c,prim->a)));
+    return vs_add(p,vs_mul(normal,64*DBL_EPSILON*fmax(span,scale)));
 }

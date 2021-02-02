@@ -113,7 +113,7 @@ static bool shadow(const VsScene *s,Vertex vertex,Connection c,double time,VsSam
                    double nm,MediumStack media,VsPath *out,double *tr,double *delay,VsError *error) {
     *tr=1;
     *delay=vertex.delay;
-    VsVec3 origin=vertex.volume?vertex.point:vs_offset(vertex.point,vertex.n,c.wi);
+    VsVec3 origin=vertex.volume?vertex.point:vs_offset(s->primitives+vertex.primitive,vertex.point,vertex.n,c.wi);
     VsVec3 position=vertex.point;
     VsVec3 endpoint=vs_add(vertex.point,vs_mul(c.wi,c.timed?c.distance:0));
     for (uint32_t i=0;i<64;++i) {
@@ -140,7 +140,7 @@ static bool shadow(const VsScene *s,Vertex vertex,Connection c,double time,VsSam
         const VsMaterial *m=s->materials+p->material;
         if (m->kind!=VS_NULL) { *tr=0; return true; }
         if (!cross_boundary(&media,p,m,hit.front,nm,&media,error)) return false;
-        origin=vs_offset(hit.point,hit.normal,c.wi);
+        origin=vs_offset(p,hit.point,hit.normal,c.wi);
     }
     return vs_fail(error,"shadow traversal exceeded transparent boundary limit");
 }
@@ -249,7 +249,7 @@ bool vs_trace_path(const VsScene *s,VsRender cfg,uint32_t pixel,uint32_t index,
                 !cross_boundary(&media,p,v.material,hit.front,nm,&next,error)) return false;
             if (v.material->kind==VS_NULL) {
                 media=next;
-                ray.origin=vs_offset(point,hit.normal,ray.direction);
+                ray.origin=vs_offset(p,point,hit.normal,ray.direction);
                 record(trace,VS_EVENT_BOUNDARY,v,current(&media).medium,distance,1,1,true);
                 continue;
             }
@@ -278,7 +278,7 @@ bool vs_trace_path(const VsScene *s,VsRender cfg,uint32_t pixel,uint32_t index,
         v.previous_pdf=scatter.pdf;
         v.previous=point;
         ++v.depth;
-        ray.origin=v.volume?point:vs_offset(point,v.n,scatter.wi);
+        ray.origin=v.volume?point:vs_offset(s->primitives+v.primitive,point,v.n,scatter.wi);
         ray.direction=vs_unit(scatter.wi);
     }
     if (v.iteration>=128) return vs_fail(error,"path exceeded segment budget");

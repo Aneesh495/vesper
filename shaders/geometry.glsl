@@ -95,11 +95,6 @@ Hit traverse(Ray ray) {
     return hit;
 }
 
-vec3 offset_ray(vec3 p,vec3 n,vec3 d) {
-    if (dot(n,d)<0) n=-n;
-    return p+n*(8e-7*max(1e-4,max(abs(p.x),max(abs(p.y),abs(p.z)))));
-}
-
 vec3 surface_point(Primitive p,Ray ray,vec4 hit) {
     vec3 a=p.a.xyz+p.velocity.xyz*ray.time;
     vec3 n=hit.xyz;
