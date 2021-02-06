@@ -85,3 +85,7 @@ verify:
 	python3 scripts/verify.py "$(EVIDENCE)" --build-dir "$(BUILD_DIR)"
 release:
 	python3 scripts/verify.py "$(EVIDENCE)" --build-dir "$(BUILD_DIR)" --require-full
+
+.PHONY: negative-controls
+negative-controls:
+	python3 scripts/negative_controls.py "$(EVIDENCE)" --build-dir "$(BUILD_DIR)" --output "$(CONTROL_LOG)"
