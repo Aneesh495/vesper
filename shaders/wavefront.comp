@@ -112,11 +112,11 @@ void intersect_path(uint slot) {
     fault(12u);
 }
 
-struct Connection { vec3 wi; float dist,le,pdf; bool delta; vec2 pulse; };
+struct Connection { vec3 wi,endpoint; float dist,le,pdf; bool delta; vec2 pulse; };
 
 Connection connect_light(vec3 from,float time,float nm,uint index,vec2 u) {
     Light l=lights[index];
-    Connection c=Connection(vec3(0),FAR,spectrum(l.power,l.info.y,nm),1./float(scene.counts.z),false,l.pulse.xy);
+    Connection c=Connection(vec3(0),vec3(0),FAR,spectrum(l.power,l.info.y,nm),1./float(scene.counts.z),false,l.pulse.xy);
     if (l.info.x==3u) {
         c.wi=direction_at(vec3(0,0,1),2.*u.x-1.,2.*PI*u.y);
         c.pdf/=4.*PI;
@@ -146,6 +146,7 @@ Connection connect_light(vec3 from,float time,float nm,uint index,vec2 u) {
         c.le/=c.dist*c.dist;
         c.delta=true;
     }
+    c.endpoint=endpoint;
     return c;
 }
 
@@ -169,6 +170,7 @@ void direct_light(uint slot,State s,Material m,vec3 n,vec3 wo,float ni,float nt,
     sh.dir_value=vec4(c.wi,value);
     sh.time_pulse=vec4(s.origin_time.w,s.point_delay.w,c.pulse);
     sh.point=vec4(s.point_delay.xyz,s.spectral.x);
+    sh.endpoint=vec4(c.endpoint,0);
     sh.key=uvec4(key,cosine<0.?next:s.key.w,s.tracking.x-1u);
     for (uint i=0u;i<4u;++i) sh.boundary[i]=cosine<0.?next_stack[i]:s.boundary[i];
     shadows[slot]=sh;
@@ -254,11 +256,14 @@ void shadow_path(uint slot) {
     float tr=1.,nm=s.point.w,arrival=s.time_pulse.y;
     vec3 origin=s.origin_dist.xyz,d=s.dir_value.xyz,point=s.point.xyz;
     bool timed=s.origin_dist.w!=FAR;
-    vec3 end=point+(timed?s.origin_dist.w:0.)*d;
+    vec3 end=s.endpoint.xyz;
     for (uint i=0u;i<64u;++i) {
-        float distance=timed?max(0.,dot(end-origin,d)):FAR;
+        vec3 toward=end-origin;
+        float distance=timed?length(toward):FAR;
+        if (distance==0.) { contribution(slot,1,s.dir_value.w*tr,arrival,s.time_pulse.zw); return; }
+        vec3 direction=timed?toward/distance:d;
         float tolerance=timed?16e-7*(distance+length(origin)+length(end)):0.;
-        Ray ray=Ray(origin,d,0.,max(0.,distance-tolerance),s.time_pulse.x);
+        Ray ray=Ray(origin,direction,0.,max(0.,distance-tolerance),s.time_pulse.x);
         Hit h=traverse(ray);
         atomicAdd(counter[4],1u);
         uint medium=medium_at(s.boundary,s.key.z);
@@ -272,7 +277,7 @@ void shadow_path(uint slot) {
         if (materials[p.info.y].info.x!=3u) return;
         if (!cross_at(s.boundary,s.key.z,h.id.x,dot(d,h.normal_t.xyz)<0.)) return;
         next=surface_point(p,ray,h.normal_t);
-        origin=offset_surface(p,next,h.normal_t.xyz,d);
+        origin=offset_surface(p,next,h.normal_t.xyz,ray.d);
         point=next;
     }
     fault(13u);

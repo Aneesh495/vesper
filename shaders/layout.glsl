@@ -15,7 +15,7 @@ struct State {
 };
 struct Hit { vec4 normal_t; uvec4 id; };
 struct Shadow {
-    vec4 origin_dist,dir_value,time_pulse,point;
+    vec4 origin_dist,dir_value,time_pulse,point,endpoint;
     uvec4 key,boundary[4];
 };
 struct Medium { vec4 absorption[2],scattering[2],lo,hi,optics; uvec4 grid,kind; };

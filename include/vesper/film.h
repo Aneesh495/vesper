@@ -6,7 +6,7 @@
 #define VS_MAX_BINS 2048u
 #define VS_MAX_SPP 16777216u
 #define VS_FILM_BUDGET (UINT64_C(640)*1024*1024)
-#define VS_FILM_ABI 2u
+#define VS_FILM_ABI 3u
 
 typedef struct { uint32_t bins; double start,width; } VsGate;
 typedef struct {

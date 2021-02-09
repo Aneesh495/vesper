@@ -5,7 +5,7 @@ typedef struct { uint32_t medium,id; double phase,group; } Interior;
 typedef struct { Interior state[VS_MAX_BOUNDARIES]; uint32_t size; } MediumStack;
 
 typedef struct {
-    VsVec3 wi;
+    VsVec3 wi,endpoint;
     double distance,radiance,pdf;
     bool delta,timed;
     VsPulse pulse;
@@ -100,6 +100,7 @@ static Connection light_sample(const VsScene *s,VsVec3 from,double time,double n
     c.distance=vs_length(delta);
     if (c.distance<=1e-12) return (Connection){0};
     c.wi=vs_mul(delta,1/c.distance);
+    c.endpoint=endpoint;
     c.timed=true;
     if (p) c.pdf=area_pdf(p,c.wi,normal,c.distance,s->light_count);
     else {
@@ -115,12 +116,15 @@ static bool shadow(const VsScene *s,Vertex vertex,Connection c,double time,VsSam
     *delay=vertex.delay;
     VsVec3 origin=vertex.volume?vertex.point:vs_offset(s->primitives+vertex.primitive,vertex.point,vertex.n,c.wi);
     VsVec3 position=vertex.point;
-    VsVec3 endpoint=vs_add(vertex.point,vs_mul(c.wi,c.timed?c.distance:0));
+    VsVec3 endpoint=c.endpoint;
     for (uint32_t i=0;i<64;++i) {
         Interior state=current(&media);
-        double length=c.timed?fmax(0,vs_dot(vs_sub(endpoint,origin),c.wi)):INFINITY;
+        VsVec3 toward=vs_sub(endpoint,origin);
+        double length=c.timed?vs_length(toward):INFINITY;
+        if (length==0) return true;
+        VsVec3 direction=c.timed?vs_mul(toward,1/length):c.wi;
         double tolerance=128*DBL_EPSILON*(vs_length(origin)+(c.timed?vs_length(endpoint)+length:0));
-        VsRay ray={origin,c.wi,0,fmax(0,length-tolerance),time};
+        VsRay ray={origin,direction,0,fmax(0,length-tolerance),time};
         VsHit hit;
         ++out->shadow_rays;
         bool blocked=vs_bvh_hit(&s->bvh,s->primitives,ray,&hit);
@@ -140,7 +144,7 @@ static bool shadow(const VsScene *s,Vertex vertex,Connection c,double time,VsSam
         const VsMaterial *m=s->materials+p->material;
         if (m->kind!=VS_NULL) { *tr=0; return true; }
         if (!cross_boundary(&media,p,m,hit.front,nm,&media,error)) return false;
-        origin=vs_offset(p,hit.point,hit.normal,c.wi);
+        origin=vs_offset(p,hit.point,hit.normal,ray.direction);
     }
     return vs_fail(error,"shadow traversal exceeded transparent boundary limit");
 }

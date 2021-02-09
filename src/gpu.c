@@ -19,14 +19,14 @@ typedef struct { F4 vector,power[2],pulse; U4 info; } GLight;
 typedef struct { F4 eye,right,up,forward,shutter; U4 counts,media; } GConfig;
 typedef struct { F4 origin_time,dir_beta,point_delay,previous_pdf,spectral; U4 key,tracking,boundary[4]; } GState;
 typedef struct { F4 normal_t; U4 id; } GHit;
-typedef struct { F4 origin_dist,dir_value,time_pulse,point; U4 key,boundary[4]; } GShadow;
+typedef struct { F4 origin_dist,dir_value,time_pulse,point,endpoint; U4 key,boundary[4]; } GShadow;
 typedef struct { F4 absorption[2],scattering[2],lo,hi,optics; U4 grid,kind; } GMedium;
 typedef struct { uint32_t pixel,sample; } Job;
 typedef struct { uint32_t stage,parity,count,seed,width,height,depth,flags,iteration; } Push;
 
 _Static_assert(sizeof(GNode)==48 && sizeof(GPrimitive)==80 && sizeof(GMaterial)==176 &&
                sizeof(GLight)==80 && sizeof(GConfig)==112 && sizeof(GState)==176 &&
-               sizeof(GHit)==32 && sizeof(GShadow)==144 && sizeof(GMedium)==144 && sizeof(Job)==8 && sizeof(Push)==36,
+               sizeof(GHit)==32 && sizeof(GShadow)==160 && sizeof(GMedium)==144 && sizeof(Job)==8 && sizeof(Push)==36,
                "std430 ABI");
 
 typedef struct { VkBuffer buffer; VkDeviceMemory memory; VkDeviceSize size; void *data; } Buffer;

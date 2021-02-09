@@ -241,7 +241,7 @@ def renders(bundle, commands):
         require(raw["backend"] == "vulkan" and commands[name]["validation"], "transient backend mismatch")
         with film.open("rb") as f:
             header = f.read(80)
-            require(header[:8] == b"VSPFILM\0" and struct.unpack_from("<I", header, 8)[0] == 2 and
+            require(header[:8] == b"VSPFILM\0" and struct.unpack_from("<I", header, 8)[0] == 3 and
                     struct.unpack_from("<II", header, 12) == (256, 256) and
                     struct.unpack_from("<I", header, 44)[0] == 512 and
                     struct.unpack_from("<Q", header, 48)[0] == int(raw["scene"], 16) and
