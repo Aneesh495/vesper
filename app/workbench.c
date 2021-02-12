@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { WIDTH=256, HEIGHT=192, PANEL=104, TILE=16, SPP_LIMIT=1024 };
+enum { WIDTH=256, HEIGHT=192, TILE=16, SPP_LIMIT=1024 };
 
 typedef struct {
     VsScene scene;
@@ -19,7 +19,6 @@ typedef struct {
     SDL_Renderer *renderer;
     SDL_Texture *image;
     uint32_t *rgba;
-    const char *path;
     uint32_t bin,picked,sweep,x,y,selection,light;
     int anchor_x,anchor_y;
     double exposure;
@@ -251,14 +250,14 @@ static bool snapshot(Workbench *w,const char *path) {
     return ok || vs_fail(&w->error,"SDL screenshot: %s",SDL_GetError());
 }
 
-static bool smoke(Workbench *w,const char *path) {
+static bool smoke(Workbench *w,const char *path,unsigned spp) {
     for (unsigned i=0;i<360;++i) if (!update(w)) return false;
     uint64_t old=w->scene.identity;
     uint32_t count=w->film.pixels[w->picked].samples;
     if (!count || !keypress(w,SDLK_SPACE) || !update(w) || w->film.pixels[w->picked].samples!=count ||
         !keypress(w,SDLK_RIGHT) || old==w->scene.identity || w->film.pixels[w->picked].samples ||
         !keypress(w,SDLK_SPACE)) return vs_fail(&w->error,"workbench pause/invalidation probe failed");
-    for (unsigned i=0;i<1536;++i) if (!update(w)) return false;
+    for (unsigned i=0;i<spp*(WIDTH/TILE)*(HEIGHT/TILE);++i) if (!update(w)) return false;
     SDL_SetWindowSize(w->window,480,425);
     SDL_PumpEvents();
     return draw(w) && snapshot(w,path);
@@ -267,9 +266,16 @@ static bool smoke(Workbench *w,const char *path) {
 int main(int argc,char **argv) {
     bool gpu=argc>2 && !strcmp(argv[2],"vulkan");
     bool cpu=argc==2 || (argc>2 && !strcmp(argv[2],"cpu"));
-    bool probe=argc==5 && !strcmp(argv[3],"--smoke");
+    bool probe=(argc==5 || argc==6) && !strcmp(argv[3],"--smoke");
+    unsigned spp=8;
+    if (argc==6 && probe) {
+        char *end;
+        unsigned long value=strtoul(argv[5],&end,10);
+        if (end==argv[5] || *end || !value || value>512) return 2;
+        spp=(unsigned)value;
+    }
     if (argc<2 || (!gpu && !cpu) || (argc>3 && !probe)) {
-        fputs("usage: vesper-workbench SCENE [cpu|vulkan] [--smoke OUT.bmp]\n",stderr);
+        fputs("usage: vesper-workbench SCENE [cpu|vulkan] [--smoke OUT.bmp [SPP]]\n",stderr);
         return 2;
     }
     Workbench w={.cfg={WIDTH,HEIGHT,1789,7,VS_STRATIFIED,VS_WAVELENGTH_MIXTURE,
@@ -288,7 +294,7 @@ int main(int argc,char **argv) {
         if (!w.rgba || SDL_RenderSetLogicalSize(w.renderer,WIDTH,HEIGHT+50))
             ok=vs_fail(&w.error,"workbench display allocation failed");
     }
-    if (ok && probe) ok=smoke(&w,argv[4]);
+    if (ok && probe) ok=smoke(&w,argv[4],spp);
     while (ok && !probe && !w.quit) {
         SDL_Event e;
         while (ok && SDL_PollEvent(&e)) ok=event(&w,&e);

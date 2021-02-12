@@ -26,7 +26,7 @@ render: build
 	"$(BUILD_DIR)/vesper" render "$(SCENE)" --width "$(SIZE)" --height "$(HEIGHT)" --spp "$(SPP)" --seed "$(SEED)" --prefix "$(OUT)" $(RENDER_ARGS)
 demo: render
 cpu-reference: test
-transient: RENDER_ARGS += --bins 512 --step-ns .125 --checkpoint "$(OUT).vfilm"
+transient: override RENDER_ARGS += --bins 512 --step-ns .125 --checkpoint "$(OUT).vfilm"
 transient: render
 data:
 	cmake -S . -B "$(BUILD_DIR)"
@@ -89,3 +89,7 @@ release:
 .PHONY: negative-controls
 negative-controls:
 	python3 scripts/negative_controls.py "$(EVIDENCE)" --build-dir "$(BUILD_DIR)" --output "$(CONTROL_LOG)"
+
+.PHONY: docs
+docs:
+	python3 scripts/docs.py

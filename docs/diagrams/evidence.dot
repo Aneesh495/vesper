@@ -1,0 +1,12 @@
+digraph Vesper {
+  graph [rankdir=LR, bgcolor="#f5f8fc", labelloc=t, label="Trust boundaries in diagnostic replay", pad=.25, nodesep=.28, ranksep=.60, fontname="Helvetica"];
+  node [shape=box, style="rounded,filled", color="#8ca7b7", fillcolor="#e4eef4", fontname="Helvetica", fontsize=11, margin=".13,.09"];
+  edge [color="#466270", fontcolor="#334b57", fontname="Helvetica", fontsize=9];
+  "Verified hosted source" -> "Clean checkout" [label="commit and file bytes"];
+  "Clean checkout" -> "Engine commands" [label="frozen workloads"];
+  "Engine commands" -> "Raw evidence" [label="logs, EXR, checkpoints"];
+  "Raw evidence" -> "Independent verifier" [label="SHA and numerical checks"];
+  "Clean checkout" -> "Independent verifier" [label="trusted input"];
+  "Exact binaries" -> "Independent verifier" [label="bounded replay"];
+  "Rehashed altered copy" -> "Independent verifier" [label="negative control"];
+}

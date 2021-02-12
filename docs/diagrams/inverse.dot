@@ -1,0 +1,12 @@
+digraph Vesper {
+  graph [rankdir=LR, bgcolor="#f5f8fc", labelloc=t, label="Calibrated parameter lineage", pad=.25, nodesep=.28, ranksep=.60, fontname="Helvetica"];
+  node [shape=box, style="rounded,filled", color="#8ca7b7", fillcolor="#e4eef4", fontname="Helvetica", fontsize=11, margin=".13,.09"];
+  edge [color="#466270", fontcolor="#334b57", fontname="Helvetica", fontsize=9];
+  "Geometry and calibration" -> "Measurement operator" [label="fixed gains and distances"];
+  "Physical parameters" -> "Measurement operator" [label="bounded coefficients"];
+  "Measurement operator" -> "Residuals" [label="weighted by sigma"];
+  "Observations" -> "Residuals" [label="observed minus predicted"];
+  "Residuals" -> "Projected Gauss-Newton" [label="objective descent"];
+  "Projected Gauss-Newton" -> "Fit diagnostics" [label="rank and residual"];
+  "Fit diagnostics" -> "Uncertainty" [label="only identified models"];
+}

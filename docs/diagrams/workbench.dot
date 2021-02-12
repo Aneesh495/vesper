@@ -1,0 +1,12 @@
+digraph Vesper {
+  graph [rankdir=LR, bgcolor="#f5f8fc", labelloc=t, label="Interactive state and invalidation", pad=.25, nodesep=.28, ranksep=.60, fontname="Helvetica"];
+  node [shape=box, style="rounded,filled", color="#8ca7b7", fillcolor="#e4eef4", fontname="Helvetica", fontsize=11, margin=".13,.09"];
+  edge [color="#466270", fontcolor="#334b57", fontname="Helvetica", fontsize=9];
+  "Input event" -> "Exposure or time bin" [label="view only"];
+  "Input event" -> "Camera or scene edit" [label="transport change"];
+  "Exposure or time bin" -> "Existing film" [label="read only"];
+  "Camera or scene edit" -> "Recompile scene" [label="new identity"];
+  "Recompile scene" -> "New film" [label="zero sample indices"];
+  "New film" -> "Progressive tiles" [label="bounded batch"];
+  "Progressive tiles" -> "Display and pick" [label="raw inspection"];
+}

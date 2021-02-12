@@ -1,0 +1,12 @@
+digraph Vesper {
+  graph [rankdir=LR, bgcolor="#f5f8fc", labelloc=t, label="Checkpoint transaction", pad=.25, nodesep=.28, ranksep=.60, fontname="Helvetica"];
+  node [shape=box, style="rounded,filled", color="#8ca7b7", fillcolor="#e4eef4", fontname="Helvetica", fontsize=11, margin=".13,.09"];
+  edge [color="#466270", fontcolor="#334b57", fontname="Helvetica", fontsize=9];
+  "Film" -> "Temporary file" [label="header + raw arrays"];
+  "Temporary file" -> "Synced bytes" [label="flush, fsync"];
+  "Synced bytes" -> "Published checkpoint" [label="atomic rename"];
+  "Published checkpoint" -> "Contract comparison" [label="scene + device + ABI"];
+  "Contract comparison" -> "Staging film" [label="match"];
+  "Contract comparison" -> "Diagnostic error" [label="mismatch"];
+  "Staging film" -> "Resume" [label="checksum and record checks"];
+}

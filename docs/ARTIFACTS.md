@@ -1,0 +1,9 @@
+# Raw artifacts and recovery
+
+The EXR writer emits uncompressed scanlines with float32 X, Y, Z, Y variance, timed Y, excluded Y and eight equally spaced spectral integration bands. Samples is a uint32 count. X, Y and Z contain raw observer-weighted integrals. PPM converts XYZ through the linear sRGB matrix, clamps negative display channels, applies a per-channel compressive curve and uses the sRGB transfer function. Exposure and the view bin affect the PPM and workbench view.
+
+A VSPFILM v3 checkpoint begins with an 80-byte little-endian header. It stores the scene identity, device contract, image and gate dimensions, seed, sampler, wavelength density, depth, backend and integrator flags. The 84-byte per-pixel records hold the double XYZ mean, Y M2, mean timed and excluded Y, eight float spectral sums and a uint32 sample index. Pixel-major time records follow, with float XYZ sums per bin. The final uint64 is the FNV-1a checksum of the preceding bytes. The checksum detects accidental corruption. Evidence identity is tracked separately by SHA-256. A checkpoint temporary file is flushed and synced before atomic replacement.
+
+Use the same command to resume with an increased target and add the original checkpoint path with the resume flag. The current sample count at each pixel becomes its next index. If the scene, GPU device and driver fingerprint, shader bytes, integrator ABI or gate changes, begin a new film. The render CLI checks for interruption at a tile or stripe boundary and writes the requested checkpoint before exiting with status 130.
+
+A transient CSV exports one pixel in seconds and raw per-bin XYZ. The checkpoint retains all pixels and bins. Time bins store integrated energy per bin, so dividing by bin width produces a density and summing all bins produces gated energy. Excluded Y includes untimed sources and energy outside the gate.

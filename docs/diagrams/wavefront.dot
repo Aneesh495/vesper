@@ -1,0 +1,16 @@
+digraph Vesper {
+  graph [rankdir=LR, bgcolor="#f5f8fc", labelloc=t, label="One synchronized Vulkan batch", pad=.25, nodesep=.28, ranksep=.60, fontname="Helvetica"];
+  node [shape=box, style="rounded,filled", color="#8ca7b7", fillcolor="#e4eef4", fontname="Helvetica", fontsize=11, margin=".13,.09"];
+  edge [color="#466270", fontcolor="#334b57", fontname="Helvetica", fontsize=9];
+  "Host jobs" -> "Generate" [label="pixel + sample"];
+  "Generate" -> "Active queue A" [label="slot indices"];
+  "Active queue A" -> "Intersect" [label="read after barrier"];
+  "Intersect" -> "Shade" [label="hit or collision"];
+  "Shade" -> "Active queue B" [label="compact continuation"];
+  "Active queue B" -> "Intersect" [label="swap at next depth"];
+  "Shade" -> "Shadow queue" [label="finite connection"];
+  "Shadow queue" -> "Visibility" [label="attenuation"];
+  "Shade" -> "Per-slot events" [label="emission"];
+  "Visibility" -> "Per-slot events" [label="direct energy"];
+  "Per-slot events" -> "Film" [label="fence + ordered fold"];
+}

@@ -1,0 +1,12 @@
+digraph Vesper {
+  graph [rankdir=LR, bgcolor="#f5f8fc", labelloc=t, label="Vesper system boundaries", pad=.25, nodesep=.28, ranksep=.60, fontname="Helvetica"];
+  node [shape=box, style="rounded,filled", color="#8ca7b7", fillcolor="#e4eef4", fontname="Helvetica", fontsize=11, margin=".13,.09"];
+  edge [color="#466270", fontcolor="#334b57", fontname="Helvetica", fontsize=9];
+  "Scene and relative assets" -> "C17 scene compiler" [label="validated world"];
+  "C17 scene compiler" -> "CPU reference" [label="float64"];
+  "C17 scene compiler" -> "Vulkan compute" [label="float32"];
+  "CPU reference" -> "Raw film" [label="events"];
+  "Vulkan compute" -> "Raw film" [label="fenced events"];
+  "Raw film" -> "SDL workbench" [label="display transform"];
+  "Raw film" -> "EXR and VSPFILM" [label="linear export"];
+}

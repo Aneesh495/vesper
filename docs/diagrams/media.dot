@@ -1,0 +1,11 @@
+digraph Vesper {
+  graph [rankdir=LR, bgcolor="#f5f8fc", labelloc=t, label="Boundary stack transitions", pad=.25, nodesep=.28, ranksep=.60, fontname="Helvetica"];
+  node [shape=box, style="rounded,filled", color="#8ca7b7", fillcolor="#e4eef4", fontname="Helvetica", fontsize=11, margin=".13,.09"];
+  edge [color="#466270", fontcolor="#334b57", fontname="Helvetica", fontsize=9];
+  "World" -> "Outer dielectric" [label="front transmission"];
+  "Outer dielectric" -> "Inner medium" [label="front transmission"];
+  "Inner medium" -> "Outer dielectric" [label="matching exit ID"];
+  "Outer dielectric" -> "World" [label="matching exit ID"];
+  "Outer dielectric" -> "Outer dielectric" [label="reflection or TIR"];
+  "World" -> "World" [label="unmatched exit is an error"];
+}

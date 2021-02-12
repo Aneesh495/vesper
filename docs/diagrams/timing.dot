@@ -1,0 +1,11 @@
+digraph Vesper {
+  graph [rankdir=LR, bgcolor="#f5f8fc", labelloc=t, label="Sensor-to-light optical time", pad=.25, nodesep=.28, ranksep=.60, fontname="Helvetica"];
+  node [shape=box, style="rounded,filled", color="#8ca7b7", fillcolor="#e4eef4", fontname="Helvetica", fontsize=11, margin=".13,.09"];
+  edge [color="#466270", fontcolor="#334b57", fontname="Helvetica", fontsize=9];
+  "Sensor" -> "First surface" [label="vacuum segment"];
+  "First surface" -> "Exit interface" [label="group index times metres"];
+  "Exit interface" -> "Pulse source" [label="vacuum or medium"];
+  "Pulse source" -> "Arrival" [label="divide optical length by c"];
+  "Arrival" -> "Instrument convolution" [label="source pulse + response"];
+  "Instrument convolution" -> "Half-open time bins" [label="CDF differences"];
+}
