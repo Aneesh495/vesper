@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -66,6 +67,24 @@ def bad_replay(text):
     return "\n".join(rows) + "\n"
 
 
+def majorant(text):
+    row = json.loads(text)
+    row["media"][1]["majorant"] = .05
+    return json.dumps(row) + "\\n"
+
+
+def stale_film(target):
+    data = bytearray(target.read_bytes())
+    scene, = struct.unpack_from("<Q", data, 48)
+    struct.pack_into("<Q", data, 48, scene ^ 1)
+    checksum = 14695981039346656037
+    for byte in data[:-8]:
+        checksum = ((checksum ^ byte) * 1099511628211) & 0xffffffffffffffff
+    struct.pack_into("<Q", data, len(data) - 8, checksum)
+    target.unlink()
+    target.write_bytes(data)
+
+
 CASES = [
     ("wrong-time-units", "temporal.stdout", temporal("arrival_s", lambda x: x * 1e9), "arrival omitted or changed"),
     ("missing-camera-segment", "temporal.stdout", temporal("arrival_s", lambda x: x - 4 / 299792458), "arrival omitted or changed"),
@@ -73,6 +92,8 @@ CASES = [
     ("wrong-calibration", "inverse/calibration-00-11.csv", calibration, "altered measurement calibration"),
     ("false-certainty", "inverse/fits.jsonl", false_certainty, "assigned false certainty"),
     ("false-sample-count", "afterglow-cpu-11-16.stdout", sample_count, "false useful sample count"),
+    ("majorant", "grid-contract.stdout", majorant, "invalid recorded density majorant"),
+    ("stale-film", "recovery/resumed.vfilm", stale_film, "changed scene reused an existing film"),
     ("wrong-source", "SOURCE_INPUTS.json", source_mismatch, "source differs"),
     ("changed-replay", "trace.stdout", bad_replay, "bounded transport replay differs"),
 ]
@@ -89,7 +110,9 @@ def run(bundle, build, output):
                 copied = Path(tmp) / "bundle"
                 shutil.copytree(bundle, copied, copy_function=os.link)
                 target = copied / relative
-                if change:
+                if change is stale_film:
+                    stale_film(target)
+                elif change:
                     rewrite(target, change)
                 else:
                     target.unlink()

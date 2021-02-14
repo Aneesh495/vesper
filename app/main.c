@@ -24,6 +24,7 @@ static void usage(void) {
     fputs("usage: vesper render SCENE [options]\n"
           "       vesper trace SCENE [options]\n"
           "       vesper gpu-probe SCENE [options]\n"
+          "       vesper inspect SCENE\n"
           "  --width N --height N --spp N --seed N --depth N\n"
           "  --sampler random|stratified|halton --wavelength uniform|mixture\n"
           "  --bins N --start-ns X --step-ns X --bin N --exposure X\n"
@@ -190,13 +191,33 @@ static bool render(const VsScene *s,const Options *o,bool probe,VsError *error) 
     return ok;
 }
 
+static bool inspect(const VsScene *s) {
+    printf("{\"scene\":\"%016llx\",\"primitives\":%u,\"nodes\":%u,\"lights\":%u,\"media\":[",
+           (unsigned long long)s->identity,s->primitive_count,s->bvh.node_count,s->light_count);
+    for (uint32_t i=0;i<s->medium_count;++i) {
+        const VsMedium *m=s->media+i;
+        float maximum=m->density?0:1;
+        size_t count=(size_t)m->nx*m->ny*m->nz;
+        for (size_t j=0;j<count;++j) maximum=fmaxf(maximum,m->density[j]);
+        printf("%s{\"name\":\"%s\",\"dimensions\":[%u,%u,%u],\"density_max\":%.17g,"
+               "\"majorant\":%.17g,\"absorption_550\":%.17g,\"scattering_550\":%.17g}",
+               i?",":"",m->name,m->nx,m->ny,m->nz,(double)maximum,m->majorant,
+               vs_spectrum(m->absorption,550),vs_spectrum(m->scattering,550));
+    }
+    puts("]}");
+    return !ferror(stdout);
+}
+
 int main(int argc,char **argv) {
     if (argc==2 && !strcmp(argv[1],"--help")) { usage(); return 0; }
-    if (argc<3 || (strcmp(argv[1],"render") && strcmp(argv[1],"trace") && strcmp(argv[1],"gpu-probe"))) { usage(); return 2; }
+    if (argc<3 || (strcmp(argv[1],"render") && strcmp(argv[1],"trace") && strcmp(argv[1],"gpu-probe") &&
+        strcmp(argv[1],"inspect"))) { usage(); return 2; }
     VsError error={0};
     Options o;
     VsScene s={0};
-    if (!arguments(&o,argc,argv,&error) || !vs_scene_load(&s,argv[2],&error)) {
+    bool inspection=!strcmp(argv[1],"inspect");
+    if (inspection && argc!=3) { usage(); return 2; }
+    if ((!inspection && !arguments(&o,argc,argv,&error)) || !vs_scene_load(&s,argv[2],&error)) {
         fprintf(stderr,"vesper: %s\n",error.message);
         return 2;
     }
@@ -206,7 +227,7 @@ int main(int argc,char **argv) {
     sigaction(SIGTERM,&action,NULL);
     bool probe=!strcmp(argv[1],"gpu-probe");
     if (probe) o.cfg.backend=VS_BACKEND_VULKAN;
-    bool ok=!strcmp(argv[1],"trace")?trace(&s,&o,&error):render(&s,&o,probe,&error);
+    bool ok=inspection?inspect(&s):!strcmp(argv[1],"trace")?trace(&s,&o,&error):render(&s,&o,probe,&error);
     vs_scene_destroy(&s);
     if (!ok) fprintf(stderr,"vesper: %s\n",error.message);
     return !ok?1:stop?130:0;

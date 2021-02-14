@@ -74,7 +74,7 @@ def source_and_manifest(bundle, build, require_full):
     commands = {row["name"]: row for row in records(bundle / "COMMANDS.jsonl")}
     require(all(row["exit"] == 0 and row["seconds"] > 0 for row in commands.values()), "failed recorded command")
     require({"ctest", "geometry", "numerical", "temporal", "benchmark", "inverse",
-             "recovery", "trace", "showcases", "workbench"}.issubset(commands), "required command missing")
+             "recovery", "trace", "showcases", "workbench", "grid-contract"}.issubset(commands), "required command missing")
     return commands
 
 
@@ -119,6 +119,15 @@ def temporal(bundle):
 
 
 def spectral_volume(bundle, build):
+    contract = load(bundle / "grid-contract.stdout")
+    grid = contract["media"][1]
+    values = [float(x) for x in (ROOT / "scenes/assets/veil.grid").read_text().split()]
+    expected = max(values) * (0.13 + 1.75)
+    require(grid["name"] == "veil" and grid["dimensions"] == [3, 3, 3] and len(values) == 27 and
+            nearly(grid["density_max"], max(values), abs_=1e-7) and
+            grid["majorant"] >= expected and nearly(grid["majorant"], 2.1) and
+            nearly(grid["absorption_550"], .13) and nearly(grid["scattering_550"], 1.75),
+            "invalid recorded density majorant or calibration")
     lines = list(csv.reader((bundle / "numerical.stdout").open()))
     require(len(lines) == 12, "missing spectral, BSDF or volume results")
     with (ROOT / "data/CIE_xyz_1931_2deg.csv").open() as f:
@@ -280,6 +289,10 @@ def work(bundle):
     require(rec["interrupted"]["interrupted"] and rec["interrupted"]["samples"] > 0 and
             rec["resumed"]["samples"] + rec["interrupted"]["samples"] == 192*128*96 and
             "mismatch" in rec["rejected_scene"] and "checksum" in rec["rejected_corruption"], "recovery outcome mismatch")
+    with (bundle / "recovery/resumed.vfilm").open("rb") as f:
+        header = f.read(80)
+    require(struct.unpack_from("<Q", header, 48)[0] == int(rec["interrupted"]["scene"], 16) and
+            rec["resumed"]["scene"] == rec["interrupted"]["scene"], "changed scene reused an existing film")
     require(hash_file(bundle / "recovery/complete.vfilm") == hash_file(bundle / "recovery/resumed.vfilm") == rec["sha256"],
             "resumed CPU result differs from uninterrupted result")
     require((bundle / "workbench.bmp").read_bytes().startswith(b"BM"), "workbench capture missing")
