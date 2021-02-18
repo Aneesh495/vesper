@@ -1,0 +1,21 @@
+name: Hardware diagnostics
+on:
+  workflow_dispatch:
+concurrency:
+  group: vesper-hardware-diagnostic
+  cancel-in-progress: false
+jobs:
+  hardware:
+    runs-on: [self-hosted, vesper-gpu]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - run: make doctor
+      - run: make acceptance PROFILE=diagnostic RUN_ID=hardware-${{ github.run_id }}-${{ github.run_attempt }}
+      - run: make verify EVIDENCE=evidence/hardware-${{ github.run_id }}-${{ github.run_attempt }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hardware-diagnostic
+          path: evidence/
+          retention-days: 5

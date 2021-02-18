@@ -1,0 +1,44 @@
+name: Build and checks
+on:
+  push:
+  pull_request:
+concurrency:
+  group: vesper-ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y cmake glslang-tools libvulkan-dev libsdl2-dev graphviz
+      - run: make test
+      - run: make docs
+      - run: make inverse-recovery
+      - run: make render SIZE=40 HEIGHT=30 SPP=4 RENDER_ARGS="--bins 32 --checkpoint run/diagnostic.vfilm"
+      - name: Reject a changed checkpoint scene
+        run: |
+          if build/vesper render scenes/veil.vs --width 40 --height 30 --spp 5 --bins 32 --resume run/diagnostic.vfilm; then
+            exit 1
+          fi
+      - name: Check the SDL execution path
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_RENDER_DRIVER: software
+        run: build/vesper-workbench scenes/afterglow.vs cpu --smoke run/workbench.bmp
+      - name: Build and test instrumented CPU target
+        run: make test BUILD_DIR=build-sanitized CMAKE_FLAGS="-DVESPER_SANITIZE=ON -DVESPER_VULKAN=OFF -DVESPER_WORKBENCH=OFF"
+      - name: Package installed components
+        run: |
+          cmake --install build --prefix run/package
+          tar -C run/package -czf run/vesper-linux.tar.gz .
+          run/package/bin/vesper trace scenes/afterglow.vs --width 32 --height 24 --pixel 400
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vesper-linux-diagnostics
+          path: |
+            run/vesper-linux.tar.gz
+            run/vesper.exr
+            run/workbench.bmp
+          retention-days: 7
