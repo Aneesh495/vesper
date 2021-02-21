@@ -18,7 +18,7 @@ triangle umber -3 0 -2.8 -3 4 4 -3 0 4 0 0 0 0
 triangle teal 3 0 -2.8 3 4 4 3 4 -2.8 0 0 0 0
 triangle teal 3 0 -2.8 3 0 4 3 4 4 0 0 0 0
 sphere bronze -1.05 .71 -.15 .71 0 0 0 0
-sphere flint .75 .86 -.2 .86 0 0 0 1
+sphere flint .75 .862 -.2 .86 0 0 0 1
 sphere teal 1.62 .34 1.08 .34 0 0 0 0
 triangle fixture -1.15 3.05 -.85 .75 3.05 -.85 .75 3.05 .72 0 0 0 0
 triangle fixture -1.15 3.05 -.85 .75 3.05 .72 -1.15 3.05 .72 0 0 0 0
