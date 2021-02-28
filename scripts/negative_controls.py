@@ -70,7 +70,7 @@ def bad_replay(text):
 def majorant(text):
     row = json.loads(text)
     row["media"][1]["majorant"] = .05
-    return json.dumps(row) + "\\n"
+    return json.dumps(row) + "\n"
 
 
 def stale_film(target):
