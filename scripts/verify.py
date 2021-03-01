@@ -74,7 +74,7 @@ def source_and_manifest(bundle, build, require_full):
     commands = {row["name"]: row for row in records(bundle / "COMMANDS.jsonl")}
     require(all(row["exit"] == 0 and row["seconds"] > 0 for row in commands.values()), "failed recorded command")
     require({"ctest", "geometry", "numerical", "temporal", "benchmark", "inverse",
-             "recovery", "trace", "showcases", "workbench", "grid-contract"}.issubset(commands), "required command missing")
+             "recovery", "gpu-recovery", "trace", "showcases", "workbench", "grid-contract"}.issubset(commands), "required command missing")
     return commands
 
 
@@ -273,6 +273,28 @@ def renders(bundle, commands):
         image(gallery, file.stem, 160, 100, 32, ".json")
 
 
+def recovery(bundle, name, backend, samples):
+    rec = load(bundle / (name + ".stdout"))
+    paths = bundle / name
+    require(rec["interrupted"]["backend"] == rec["resumed"]["backend"] == backend and
+            rec["interrupted"]["interrupted"] and 0 < rec["interrupted"]["samples"] < samples and
+            rec["resumed"]["samples"] + rec["interrupted"]["samples"] == samples and
+            "mismatch" in rec["rejected_scene"] and "checksum" in rec["rejected_corruption"],
+            f"{backend} recovery outcome mismatch")
+    with (paths / "resumed.vfilm").open("rb") as f:
+        header = f.read(80)
+    require(struct.unpack_from("<Q", header, 48)[0] == int(rec["interrupted"]["scene"], 16) and
+            rec["resumed"]["scene"] == rec["interrupted"]["scene"], "changed scene reused an existing film")
+    require(hash_file(paths / "complete.vfilm") == hash_file(paths / "resumed.vfilm") == rec["sha256"],
+            f"resumed {backend} result differs from uninterrupted result")
+    if backend == "vulkan":
+        require(struct.unpack_from("<Q", header, 56)[0] != 0 and
+                struct.unpack_from("<I", header, 44)[0] == 128 and
+                "validation=1" in (paths / "interrupted.log").read_text() and
+                "mismatch" in rec["rejected_backend"] and "mismatch" in rec["rejected_device"],
+                "GPU recovery device, gate or validation contract mismatch")
+
+
 def work(bundle):
     geometry = load(bundle / "geometry.stdout")
     require(geometry["rays"] == 1_000_000 and geometry["edge_rays"] == 1025 and
@@ -285,16 +307,8 @@ def work(bundle):
         require(row["triangles"] == 1_000_000 and row["samples"] == 512*256*16 and row["seconds"] > 0 and
                 row["path_segments"] >= row["samples"] and row["shadow_segments"] > 0 and
                 nearly(useful / row["seconds"], row["segments_per_s"], rel=1e-7), "benchmark workload or rate mismatch")
-    rec = load(bundle / "recovery.stdout")
-    require(rec["interrupted"]["interrupted"] and rec["interrupted"]["samples"] > 0 and
-            rec["resumed"]["samples"] + rec["interrupted"]["samples"] == 192*128*96 and
-            "mismatch" in rec["rejected_scene"] and "checksum" in rec["rejected_corruption"], "recovery outcome mismatch")
-    with (bundle / "recovery/resumed.vfilm").open("rb") as f:
-        header = f.read(80)
-    require(struct.unpack_from("<Q", header, 48)[0] == int(rec["interrupted"]["scene"], 16) and
-            rec["resumed"]["scene"] == rec["interrupted"]["scene"], "changed scene reused an existing film")
-    require(hash_file(bundle / "recovery/complete.vfilm") == hash_file(bundle / "recovery/resumed.vfilm") == rec["sha256"],
-            "resumed CPU result differs from uninterrupted result")
+    recovery(bundle, "recovery", "cpu", 192*128*96)
+    recovery(bundle, "gpu-recovery", "vulkan", 96*64*64)
     require((bundle / "workbench.bmp").read_bytes().startswith(b"BM"), "workbench capture missing")
     return gpu["segments_per_s"]
 

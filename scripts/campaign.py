@@ -84,6 +84,8 @@ class Campaign:
                              self.output / "inverse"])
         self.run("recovery", [sys.executable, "scripts/recovery.py", self.build / "vesper",
                              self.output / "recovery"])
+        self.run("gpu-recovery", [sys.executable, "scripts/recovery.py", self.build / "vesper",
+                                 self.output / "gpu-recovery", "--backend", "vulkan"], validate=True)
         self.run("trace", [self.build / "vesper", "trace", "scenes/afterglow.vs", "--width", 24,
                             "--height", 18, "--pixel", 228, "--seed", 19, "--sample", 12])
         for scene in SCENES:

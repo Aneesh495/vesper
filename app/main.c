@@ -14,6 +14,7 @@ typedef struct {
     VsRegion region;
     uint32_t spp,pixel,sample,bin;
     double exposure;
+    bool progress;
     const char *prefix,*checkpoint,*resume;
 } Options;
 
@@ -29,7 +30,7 @@ static void usage(void) {
           "  --sampler random|stratified|halton --wavelength uniform|mixture\n"
           "  --bins N --start-ns X --step-ns X --bin N --exposure X\n"
           "  --prefix PATH --checkpoint PATH --resume PATH --pixel N --sample N\n"
-          "  --backend cpu|vulkan --region X Y W H --no-nee --no-roulette\n",stderr);
+          "  --backend cpu|vulkan --region X Y W H --progress --no-nee --no-roulette\n",stderr);
 }
 
 static bool uint_arg(const char *s,uint32_t *out) {
@@ -56,6 +57,7 @@ static bool arguments(Options *o,int argc,char **argv,VsError *error) {
                  .spp=32,.prefix="vesper",.bin=UINT32_MAX,.pixel=UINT32_MAX};
     for (int i=3;i<argc;++i) {
         const char *key=argv[i];
+        if (!strcmp(key,"--progress")) { o->progress=true; continue; }
         if (!strcmp(key,"--no-nee")) { o->cfg.nee=false; continue; }
         if (!strcmp(key,"--no-roulette")) { o->cfg.roulette=false; continue; }
         if (i+1>=argc) return vs_fail(error,"missing value for %s",key);
@@ -168,6 +170,11 @@ static bool render(const VsScene *s,const Options *o,bool probe,VsError *error) 
             VsRegion tile={x,y,(uint32_t)fmin(columns,r.x+r.width-x),(uint32_t)fmin(rows,r.y+r.height-y)};
             ok=gpu?vs_gpu_render(gpu,s,&f,tile,o->spp,&stats,error):
                 vs_render_cpu(s,&f,tile,o->spp,&stats,error);
+        }
+        if (ok && !stop && o->progress) {
+            fprintf(stderr,"progress rows=%u/%u samples=%llu\n",
+                (uint32_t)fmin(y-r.y+rows,r.height),r.height,(unsigned long long)stats.samples);
+            fflush(stderr);
         }
     }
     double dt=monotonic()-t0;
