@@ -74,7 +74,7 @@ def source_and_manifest(bundle, build, require_full):
     commands = {row["name"]: row for row in records(bundle / "COMMANDS.jsonl")}
     require(all(row["exit"] == 0 and row["seconds"] > 0 for row in commands.values()), "failed recorded command")
     require({"ctest", "geometry", "numerical", "temporal", "benchmark", "inverse",
-             "recovery", "gpu-recovery", "trace", "showcases", "workbench", "grid-contract"}.issubset(commands), "required command missing")
+             "recovery", "gpu-recovery", "adaptive-cpu", "adaptive-vulkan", "trace", "showcases", "workbench", "grid-contract"}.issubset(commands), "required command missing")
     return commands
 
 
@@ -273,6 +273,27 @@ def renders(bundle, commands):
         image(gallery, file.stem, 160, 100, 32, ".json")
 
 
+def adaptive(bundle, backend):
+    name = "adaptive-" + backend
+    root = bundle / name
+    report = load(bundle / (name + ".stdout"))
+    stats = load(root / "adaptive.json")
+    shape, pixels, _ = exr(root / "adaptive.exr", ("X", "Y", "Z", "VarianceY", "Samples"))
+    counts = pixels["Samples"]
+    require(shape == (24, 18) and stats["backend"] == report["backend"] == backend and
+            stats["adaptive_rel"] == .45 and report["min_spp"] == min(counts) == 16 < max(counts) <= 128 and
+            report["max_spp"] == max(counts) and stats["samples"] == report["samples"] == sum(counts) and
+            stats["pilot_samples"] == report["pilot_samples"] == 24*18*16 and
+            sum(counts) + stats["pilot_samples"] < 24*18*128,
+            "adaptive allocation or pilot accounting mismatch")
+    require(hash_file(root / "adaptive.vfilm") == hash_file(root / "resumed.vfilm") == report["checkpoint_sha256"],
+            "adaptive recovery changed film bytes")
+    require(report["probes"] == [77, 228, 320], "adaptive replay probe selection mismatch")
+    for index in report["probes"]:
+        _, fixed, _ = exr(root / f"pixel-{index}.exr", pixels)
+        require(all(fixed[c][index] == pixels[c][index] for c in pixels), "adaptive primary sample mismatch")
+
+
 def recovery(bundle, name, backend, samples):
     rec = load(bundle / (name + ".stdout"))
     paths = bundle / name
@@ -307,6 +328,8 @@ def work(bundle):
         require(row["triangles"] == 1_000_000 and row["samples"] == 512*256*16 and row["seconds"] > 0 and
                 row["path_segments"] >= row["samples"] and row["shadow_segments"] > 0 and
                 nearly(useful / row["seconds"], row["segments_per_s"], rel=1e-7), "benchmark workload or rate mismatch")
+    adaptive(bundle, "cpu")
+    adaptive(bundle, "vulkan")
     recovery(bundle, "recovery", "cpu", 192*128*96)
     recovery(bundle, "gpu-recovery", "vulkan", 96*64*64)
     require((bundle / "workbench.bmp").read_bytes().startswith(b"BM"), "workbench capture missing")

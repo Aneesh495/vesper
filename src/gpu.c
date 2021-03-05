@@ -1,4 +1,5 @@
 #include "vesper/gpu.h"
+#include "render_budget.h"
 #include <vulkan/vulkan.h>
 
 #include <float.h>
@@ -500,18 +501,20 @@ static bool collect(VsGpu *g,const VsScene *s,VsFilm *f,uint32_t count,VsStats *
     return true;
 }
 
-bool vs_gpu_render(VsGpu *g,const VsScene *s,VsFilm *f,VsRegion r,uint32_t target,
-                   VsStats *stats,VsError *error) {
+bool vs_gpu_render_budget(VsGpu *g,const VsScene *s,VsFilm *f,VsSampleBudget budget,
+                          VsStats *stats,VsError *error) {
     const VsRender a=f->render,b=g->cfg;
     if (!f->pixels || a.backend!=VS_BACKEND_VULKAN || f->scene!=g->scene || f->scene!=s->identity ||
         f->device!=g->info.identity || a.width!=b.width || a.height!=b.height || a.seed!=b.seed ||
         a.max_depth!=b.max_depth || a.sampler!=b.sampler || a.wavelength!=b.wavelength ||
-        a.nee!=b.nee || a.roulette!=b.roulette || !vs_region_valid(f,r) || !target || target>VS_MAX_SPP)
+        a.nee!=b.nee || a.roulette!=b.roulette || !vs_budget_valid(f,budget))
         return vs_fail(error,"Vulkan render config, device, region or scene mismatch");
     Job *jobs=g->buffers[WORK].data;
     uint32_t count=0;
+    VsRegion r=budget.region;
     for (uint32_t y=r.y;y<r.y+r.height;++y) for (uint32_t x=r.x;x<r.x+r.width;++x) {
         uint32_t pixel=y*a.width+x;
+        uint32_t target=vs_budget_target(budget,x,y);
         for (uint32_t sample=f->pixels[pixel].samples;sample<target;++sample) {
             jobs[count++]=(Job){pixel,sample};
             if (count==BATCH) {
@@ -521,4 +524,10 @@ bool vs_gpu_render(VsGpu *g,const VsScene *s,VsFilm *f,VsRegion r,uint32_t targe
         }
     }
     return !count || (submit(g,count,error) && collect(g,s,f,count,stats,error));
+}
+
+
+bool vs_gpu_render(VsGpu *g,const VsScene *s,VsFilm *f,VsRegion region,uint32_t target,
+                   VsStats *stats,VsError *error) {
+    return vs_gpu_render_budget(g,s,f,(VsSampleBudget){region,target,NULL},stats,error);
 }

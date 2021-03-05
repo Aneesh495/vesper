@@ -13,7 +13,7 @@ typedef struct {
     VsGate gate;
     VsRegion region;
     uint32_t spp,pixel,sample,bin;
-    double exposure;
+    double exposure,adaptive_error;
     bool progress;
     const char *prefix,*checkpoint,*resume;
 } Options;
@@ -27,6 +27,7 @@ static void usage(void) {
           "       vesper gpu-probe SCENE [options]\n"
           "       vesper inspect SCENE\n"
           "  --width N --height N --spp N --seed N --depth N\n"
+          "  --adaptive-rel X (independent CPU pilot, spp is the main-film cap)\n"
           "  --sampler random|stratified|halton --wavelength uniform|mixture\n"
           "  --bins N --start-ns X --step-ns X --bin N --exposure X\n"
           "  --prefix PATH --checkpoint PATH --resume PATH --pixel N --sample N\n"
@@ -76,6 +77,7 @@ static bool arguments(Options *o,int argc,char **argv,VsError *error) {
         else if (!strcmp(key,"--start-ns")) real=&ns_start;
         else if (!strcmp(key,"--step-ns")) real=&ns_step;
         else if (!strcmp(key,"--exposure")) real=&o->exposure;
+        else if (!strcmp(key,"--adaptive-rel")) real=&o->adaptive_error;
         else if (!strcmp(key,"--prefix")) o->prefix=value;
         else if (!strcmp(key,"--checkpoint")) o->checkpoint=value;
         else if (!strcmp(key,"--resume")) o->resume=value;
@@ -104,6 +106,9 @@ static bool arguments(Options *o,int argc,char **argv,VsError *error) {
     if (!vs_render_valid(o->cfg,error) || o->spp<1 || o->spp>VS_MAX_SPP ||
         (o->bin!=UINT32_MAX && o->bin>=o->gate.bins) || fabs(o->exposure)>40)
         return vs_fail(error,"invalid render options");
+    if (o->adaptive_error!=0 && (!(o->adaptive_error>=.001 && o->adaptive_error<=1) ||
+        o->cfg.sampler!=VS_RANDOM || o->spp<VS_ADAPTIVE_PILOT_SPP || !strcmp(argv[1],"trace")))
+        return vs_fail(error,"adaptive sampling requires a render, random sampling, at least 16 spp and relative error in [.001,1]");
     if (o->gate.bins) {
         o->gate.start=ns_start*1e-9;
         o->gate.width=ns_step*1e-9;
@@ -160,16 +165,23 @@ static bool render(const VsScene *s,const Options *o,bool probe,VsError *error) 
         vs_film_init(&f,s,o->cfg,o->gate,device,error);
     if (!ok) { vs_gpu_close(gpu); return false; }
     VsRegion r=o->region;
-    VsStats stats={0};
+    VsStats stats={0},pilot={0};
     double t0=monotonic();
     if (!vs_region_valid(&f,r)) ok=vs_fail(error,"render region outside image");
     uint32_t columns=gpu?f.render.width:16;
     uint32_t rows=gpu?8:16;
+    uint32_t *targets=o->adaptive_error?malloc((size_t)columns*rows*sizeof *targets):NULL;
+    if (o->adaptive_error && !targets) ok=vs_fail(error,"adaptive target allocation failed");
     for (uint32_t y=r.y;ok && !stop && y<r.y+r.height;y+=rows) {
         for (uint32_t x=r.x;ok && !stop && x<r.x+r.width;x+=columns) {
             VsRegion tile={x,y,(uint32_t)fmin(columns,r.x+r.width-x),(uint32_t)fmin(rows,r.y+r.height-y)};
-            ok=gpu?vs_gpu_render(gpu,s,&f,tile,o->spp,&stats,error):
-                vs_render_cpu(s,&f,tile,o->spp,&stats,error);
+            if (targets && !vs_adaptive_budget(s,o->cfg,tile,o->spp,o->adaptive_error,targets,&pilot,error)) {
+                ok=false;
+                break;
+            }
+            VsSampleBudget budget={tile,o->spp,targets};
+            ok=gpu?vs_gpu_render_budget(gpu,s,&f,budget,&stats,error):
+                vs_render_cpu_budget(s,&f,budget,&stats,error);
         }
         if (ok && !stop && o->progress) {
             fprintf(stderr,"progress rows=%u/%u samples=%llu\n",
@@ -177,6 +189,7 @@ static bool render(const VsScene *s,const Options *o,bool probe,VsError *error) 
             fflush(stderr);
         }
     }
+    free(targets);
     double dt=monotonic()-t0;
     if (ok && o->checkpoint) ok=vs_checkpoint_write(&f,o->checkpoint,error);
     char path[4096];
@@ -189,10 +202,12 @@ static bool render(const VsScene *s,const Options *o,bool probe,VsError *error) 
     const VsPixel *picked=f.pixels+o->pixel;
     if (ok) printf("{\"scene\":\"%016llx\",\"backend\":\"%s\",\"samples\":%llu,\"rays\":%llu,"
         "\"shadow_rays\":%llu,\"nulls\":%llu,\"seconds\":%.9g,\"pixel\":%u,\"pixel_spp\":%u,"
-        "\"pixel_y\":%.17g,\"pixel_variance_y\":%.17g,\"interrupted\":%s}\n",
+        "\"pixel_y\":%.17g,\"pixel_variance_y\":%.17g,\"interrupted\":%s,"
+        "\"adaptive_rel\":%.17g,\"pilot_samples\":%llu,\"pilot_segments\":%llu}\n",
         (unsigned long long)s->identity,gpu?"vulkan":"cpu",(unsigned long long)stats.samples,(unsigned long long)stats.rays,
         (unsigned long long)stats.shadows,(unsigned long long)stats.nulls,dt,o->pixel,picked->samples,
-        picked->mean.y,vs_film_variance(picked),stop?"true":"false");
+        picked->mean.y,vs_film_variance(picked),stop?"true":"false",o->adaptive_error,
+        (unsigned long long)pilot.samples,(unsigned long long)(pilot.rays+pilot.shadows));
     vs_film_destroy(&f);
     vs_gpu_close(gpu);
     return ok;

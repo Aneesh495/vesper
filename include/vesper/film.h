@@ -7,6 +7,7 @@
 #define VS_MAX_SPP 16777216u
 #define VS_FILM_BUDGET (UINT64_C(640)*1024*1024)
 #define VS_FILM_ABI 3u
+#define VS_ADAPTIVE_PILOT_SPP 16u
 
 typedef struct { uint32_t bins; double start,width; } VsGate;
 typedef struct {
@@ -24,6 +25,12 @@ typedef struct {
 } VsFilm;
 
 typedef struct { uint32_t x,y,width,height; } VsRegion;
+typedef struct {
+    VsRegion region;
+    uint32_t max_spp;
+    /* Optional row-major region-sized target array. A zero target skips the pixel. */
+    const uint32_t *targets;
+} VsSampleBudget;
 typedef struct { uint64_t samples,rays,shadows,nulls; } VsStats;
 
 bool vs_film_init(VsFilm *film,const VsScene *scene,VsRender render,VsGate gate,
@@ -34,6 +41,11 @@ bool vs_film_add(VsFilm *film,uint32_t pixel,const VsPath *path,double response,
 VsVec3 vs_film_slice(const VsFilm *film,uint32_t pixel,uint32_t bin);
 double vs_film_variance(const VsPixel *pixel);
 bool vs_region_valid(const VsFilm *film,VsRegion region);
+bool vs_adaptive_budget(const VsScene *scene,VsRender render,VsRegion region,
+                        uint32_t max_spp,double relative_error,uint32_t *targets,
+                        VsStats *pilot_stats,VsError *error);
+bool vs_render_cpu_budget(const VsScene *scene,VsFilm *film,VsSampleBudget budget,
+                          VsStats *stats,VsError *error);
 bool vs_render_cpu(const VsScene *scene,VsFilm *film,VsRegion region,uint32_t target,
                    VsStats *stats,VsError *error);
 bool vs_checkpoint_write(const VsFilm *film,const char *path,VsError *error);

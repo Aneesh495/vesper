@@ -14,6 +14,8 @@ typedef struct {
 bool vs_gpu_open(VsGpu **gpu,const VsScene *scene,VsRender config,VsError *error);
 void vs_gpu_close(VsGpu *gpu);
 const VsDevice *vs_gpu_device(const VsGpu *gpu);
+bool vs_gpu_render_budget(VsGpu *gpu,const VsScene *scene,VsFilm *film,VsSampleBudget budget,
+                          VsStats *stats,VsError *error);
 bool vs_gpu_render(VsGpu *gpu,const VsScene *scene,VsFilm *film,VsRegion region,
                    uint32_t target,VsStats *stats,VsError *error);
 

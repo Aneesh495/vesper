@@ -93,3 +93,8 @@ negative-controls:
 .PHONY: docs
 docs:
 	python3 scripts/docs.py
+
+.PHONY: adaptive-check
+adaptive-check: build
+	mkdir -p run
+	python3 scripts/adaptive_check.py "$(BUILD_DIR)/vesper" "$$(mktemp -u run/adaptive.XXXXXX)" --backend "$(BACKEND)"

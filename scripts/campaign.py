@@ -86,6 +86,10 @@ class Campaign:
                              self.output / "recovery"])
         self.run("gpu-recovery", [sys.executable, "scripts/recovery.py", self.build / "vesper",
                                  self.output / "gpu-recovery", "--backend", "vulkan"], validate=True)
+        for backend in ("cpu", "vulkan"):
+            name = "adaptive-" + backend
+            self.run(name, [sys.executable, "scripts/adaptive_check.py", self.build / "vesper",
+                            self.output / name, "--backend", backend], validate=backend=="vulkan")
         self.run("trace", [self.build / "vesper", "trace", "scenes/afterglow.vs", "--width", 24,
                             "--height", 18, "--pixel", 228, "--seed", 19, "--sample", 12])
         for scene in SCENES:

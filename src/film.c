@@ -1,4 +1,4 @@
-#include "vesper/film.h"
+#include "render_budget.h"
 #include <float.h>
 #include <stdlib.h>
 #include <string.h>
@@ -59,13 +59,10 @@ static double deposit(VsFilm *f,uint32_t pixel,const VsContribution *c,VsVec3 se
     return kept;
 }
 
-bool vs_film_add(VsFilm *f,uint32_t pixel,const VsPath *p,double response,VsError *error) {
-    if (!f->pixels || pixel>=f->render.width*f->render.height || p->count>VS_MAX_EVENTS ||
-        !(response>=0 && response<=1) || !(p->wavelength.nm>=VS_LAMBDA_MIN &&
+static bool path_radiance(const VsPath *p,double *radiance,VsError *error) {
+    if (p->count>VS_MAX_EVENTS || !(p->wavelength.nm>=VS_LAMBDA_MIN &&
         p->wavelength.nm<=VS_LAMBDA_MAX && p->wavelength.pdf>0 && isfinite(p->wavelength.pdf)))
-        return vs_fail(error,"invalid film sample");
-    VsPixel *dst=f->pixels+pixel;
-    if (dst->samples>=VS_MAX_SPP) return vs_fail(error,"sample index limit reached");
+        return vs_fail(error,"invalid wavelength or path event count");
     double total=0;
     for (uint32_t i=0;i<p->count;++i) {
         const VsContribution *c=p->events+i;
@@ -75,6 +72,17 @@ bool vs_film_add(VsFilm *f,uint32_t pixel,const VsPath *p,double response,VsErro
         total+=c->value;
     }
     if (!(total<FLT_MAX/(4.0*VS_MAX_SPP))) return vs_fail(error,"film sample exceeds numeric range");
+    *radiance=total;
+    return true;
+}
+
+bool vs_film_add(VsFilm *f,uint32_t pixel,const VsPath *p,double response,VsError *error) {
+    if (!f->pixels || pixel>=f->render.width*f->render.height || !(response>=0 && response<=1))
+        return vs_fail(error,"invalid film sample");
+    VsPixel *dst=f->pixels+pixel;
+    if (dst->samples>=VS_MAX_SPP) return vs_fail(error,"sample index limit reached");
+    double total;
+    if (!path_radiance(p,&total,error)) return false;
     VsVec3 sensor=vs_observer(p->wavelength.nm);
     double timed=0,kept=0;
     for (uint32_t i=0;i<p->count;++i) {
@@ -110,28 +118,73 @@ bool vs_region_valid(const VsFilm *f,VsRegion r) {
         r.width<=f->render.width-r.x && r.height<=f->render.height-r.y;
 }
 
-bool vs_render_cpu(const VsScene *s,VsFilm *f,VsRegion region,uint32_t target,
-                   VsStats *stats,VsError *error) {
+static void count_path(VsStats *stats,const VsPath *p) {
+    if (!stats) return;
+    ++stats->samples;
+    stats->rays+=p->rays;
+    stats->shadows+=p->shadow_rays;
+    stats->nulls+=p->nulls;
+}
+
+bool vs_adaptive_budget(const VsScene *s,VsRender render,VsRegion region,
+                        uint32_t max_spp,double relative_error,uint32_t *targets,
+                        VsStats *pilot_stats,VsError *error) {
+    if (!s->identity || !targets || !vs_render_valid(render,error) ||
+        !vs_region_valid(&(VsFilm){.render=render},region) ||
+        max_spp<VS_ADAPTIVE_PILOT_SPP || max_spp>VS_MAX_SPP ||
+        !(relative_error>=.001 && relative_error<=1) || render.sampler!=VS_RANDOM)
+        return vs_fail(error,"adaptive sampling requires random sampling, 16 or more spp and relative error in [.001,1]");
+    /* The pilot uses a disjoint seed and never writes to the estimated film. */
+    VsRender pilot=render;
+    pilot.backend=VS_BACKEND_CPU;
+    pilot.seed^=UINT32_C(0xa511e9b3);
+    for (uint32_t y=0;y<region.height;++y) for (uint32_t x=0;x<region.width;++x) {
+        uint32_t pixel=(region.y+y)*render.width+region.x+x;
+        double mean=0,m2=0;
+        for (uint32_t n=1;n<=VS_ADAPTIVE_PILOT_SPP;++n) {
+            VsPath path;
+            double total;
+            if (!vs_trace_path(s,pilot,pixel,n-1,&path,NULL,error) || !path_radiance(&path,&total,error))
+                return false;
+            double measurement=vs_observer(path.wavelength.nm).y*total;
+            double delta=measurement-mean;
+            mean+=delta/n;
+            m2+=delta*(measurement-mean);
+            count_path(pilot_stats,&path);
+        }
+        double variance=m2/(VS_ADAPTIVE_PILOT_SPP-1);
+        double scale=relative_error*fmax(1,mean);
+        double wanted=ceil(variance/(scale*scale));
+        targets[y*region.width+x]=(uint32_t)fmax(VS_ADAPTIVE_PILOT_SPP,fmin(max_spp,wanted));
+    }
+    return true;
+}
+
+bool vs_render_cpu_budget(const VsScene *s,VsFilm *f,VsSampleBudget budget,
+                          VsStats *stats,VsError *error) {
     if (!f->pixels || f->render.backend!=VS_BACKEND_CPU || f->scene!=s->identity ||
-        !target || target>VS_MAX_SPP || !vs_region_valid(f,region))
+        !vs_budget_valid(f,budget))
         return vs_fail(error,"invalid CPU render region, scene or sample target");
+    VsRegion region=budget.region;
     const uint32_t tile=16;
     for (uint32_t ty=region.y;ty<region.y+region.height;ty+=tile)
         for (uint32_t tx=region.x;tx<region.x+region.width;tx+=tile)
             for (uint32_t y=ty;y<ty+tile && y<region.y+region.height;++y)
                 for (uint32_t x=tx;x<tx+tile && x<region.x+region.width;++x) {
                     uint32_t id=y*f->render.width+x;
+                    uint32_t target=vs_budget_target(budget,x,y);
                     for (uint32_t i=f->pixels[id].samples;i<target;++i) {
                         VsPath p;
                         if (!vs_trace_path(s,f->render,id,i,&p,NULL,error) ||
                             !vs_film_add(f,id,&p,s->response,error)) return false;
-                        if (stats) {
-                            ++stats->samples;
-                            stats->rays+=p.rays;
-                            stats->shadows+=p.shadow_rays;
-                            stats->nulls+=p.nulls;
-                        }
+                        count_path(stats,&p);
                     }
                 }
     return true;
+}
+
+
+bool vs_render_cpu(const VsScene *s,VsFilm *f,VsRegion region,uint32_t target,
+                   VsStats *stats,VsError *error) {
+    return vs_render_cpu_budget(s,f,(VsSampleBudget){region,target,NULL},stats,error);
 }
