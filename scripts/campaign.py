@@ -105,6 +105,8 @@ class Campaign:
                                self.output / f"transient-{scene}.vfilm"))
         self.run("workbench", [self.build / "vesper-workbench", "scenes/afterglow.vs", "cpu",
                                "--smoke", self.output / "workbench.bmp"])
+        self.run("gpu-workbench", [self.build / "vesper-workbench", "scenes/afterglow.vs", "vulkan",
+                                   "--smoke", self.output / "gpu-workbench.bmp", "2"], validate=True)
 
 
 def main():

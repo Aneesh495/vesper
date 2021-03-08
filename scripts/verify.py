@@ -74,7 +74,7 @@ def source_and_manifest(bundle, build, require_full):
     commands = {row["name"]: row for row in records(bundle / "COMMANDS.jsonl")}
     require(all(row["exit"] == 0 and row["seconds"] > 0 for row in commands.values()), "failed recorded command")
     require({"ctest", "geometry", "numerical", "temporal", "benchmark", "inverse",
-             "recovery", "gpu-recovery", "adaptive-cpu", "adaptive-vulkan", "trace", "showcases", "workbench", "grid-contract"}.issubset(commands), "required command missing")
+             "recovery", "gpu-recovery", "adaptive-cpu", "adaptive-vulkan", "trace", "showcases", "workbench", "gpu-workbench", "grid-contract"}.issubset(commands), "required command missing")
     return commands
 
 
@@ -316,6 +316,32 @@ def recovery(bundle, name, backend, samples):
                 "GPU recovery device, gate or validation contract mismatch")
 
 
+def workbench(bundle, name, backend, samples):
+    prefix = bundle / (name + ".bmp")
+    report = load(bundle / (name + ".stdout"))
+    require(report["backend"] == backend and report["picked"] == 35*256+27 and
+            report["samples"] == samples and report["window_width"] == 480 and report["window_height"] == 425,
+            "workbench interaction report mismatch")
+    with prefix.open("rb") as f:
+        bitmap = f.read(26)
+    require(bitmap.startswith(b"BM") and struct.unpack_from("<ii", bitmap, 18) in ((480,425),(960,850)),
+            "workbench capture dimensions mismatch")
+    shape, channels, meta = exr(str(prefix) + ".exr", ("Y", "Samples", "ExcludedY"))
+    require(shape == (256,192) and set(channels["Samples"]) == {samples} and
+            f"scene={report['scene']};" in meta, "workbench export did not match updated scene")
+    with Path(str(prefix) + ".vfilm").open("rb") as f:
+        header = f.read(80)
+        require(struct.unpack_from("<Q", header, 48)[0] == int(report["scene"], 16) and
+                bool(struct.unpack_from("<Q", header, 56)[0]) == (backend == "vulkan"),
+                "workbench checkpoint scene or backend mismatch")
+    with Path(str(prefix) + ".time.csv").open() as f:
+        bins = list(csv.DictReader(f))
+    index = report["picked"]
+    require(len(bins) == 512 and {int(row["samples"]) for row in bins} == {samples} and
+            nearly(math.fsum(float(row["Y"]) for row in bins) + channels["ExcludedY"][index],
+                   channels["Y"][index], rel=4e-6, abs_=1e-7), "workbench transient export mismatch")
+
+
 def work(bundle):
     geometry = load(bundle / "geometry.stdout")
     require(geometry["rays"] == 1_000_000 and geometry["edge_rays"] == 1025 and
@@ -332,7 +358,8 @@ def work(bundle):
     adaptive(bundle, "vulkan")
     recovery(bundle, "recovery", "cpu", 192*128*96)
     recovery(bundle, "gpu-recovery", "vulkan", 96*64*64)
-    require((bundle / "workbench.bmp").read_bytes().startswith(b"BM"), "workbench capture missing")
+    workbench(bundle, "workbench", "cpu", 8)
+    workbench(bundle, "gpu-workbench", "vulkan", 2)
     return gpu["segments_per_s"]
 
 

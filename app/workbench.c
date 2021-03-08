@@ -19,6 +19,7 @@ typedef struct {
     SDL_Renderer *renderer;
     SDL_Texture *image;
     uint32_t *rgba;
+    const char *export_prefix;
     uint32_t bin,picked,sweep,x,y,selection,light;
     int anchor_x,anchor_y;
     double exposure;
@@ -166,6 +167,18 @@ static void change_power(VsSpectrum *s,double scale,double limit) {
     for (unsigned i=0;i<count;++i) s->values[i]=fmin(limit,s->values[i]*scale);
 }
 
+static bool export_frame(Workbench *w) {
+    char exr[4096],film[4096],time[4096];
+    if (strlen(w->export_prefix)>sizeof exr-sizeof ".time.csv")
+        return vs_fail(&w->error,"workbench export path length limit");
+    snprintf(exr,sizeof exr,"%s.exr",w->export_prefix);
+    snprintf(film,sizeof film,"%s.vfilm",w->export_prefix);
+    snprintf(time,sizeof time,"%s.time.csv",w->export_prefix);
+    return vs_export_exr(&w->film,exr,&w->error) &&
+        vs_checkpoint_write(&w->film,film,&w->error) &&
+        vs_export_time_csv(&w->film,time,w->picked,&w->error);
+}
+
 static bool keypress(Workbench *w,SDL_Keycode key) {
     switch (key) {
         case SDLK_ESCAPE: w->quit=true; return true;
@@ -181,10 +194,7 @@ static bool keypress(Workbench *w,SDL_Keycode key) {
             w->selection=UINT32_MAX;
             return true;
         case SDLK_p: return trace(w);
-        case SDLK_x:
-            return vs_export_exr(&w->film,"vesper-workbench.exr",&w->error) &&
-                vs_checkpoint_write(&w->film,"vesper-workbench.vfilm",&w->error) &&
-                vs_export_time_csv(&w->film,"vesper-workbench.time.csv",w->picked,&w->error);
+        case SDLK_x: return export_frame(w);
         case SDLK_r:
             w->region=(VsRegion){0,0,WIDTH,HEIGHT};
             w->x=0; w->y=0; w->sweep=1;
@@ -203,20 +213,16 @@ static bool keypress(Workbench *w,SDL_Keycode key) {
     }
 }
 
-static void logical_mouse(Workbench *w,int *x,int *y) {
-    float lx,ly;
-    SDL_RenderWindowToLogical(w->renderer,*x,*y,&lx,&ly);
-    *x=(int)floor(lx); *y=(int)floor(ly);
-}
-
 static bool event(Workbench *w,const SDL_Event *e) {
     if (e->type==SDL_QUIT) w->quit=true;
+    if (e->type==SDL_WINDOWEVENT && e->window.event==SDL_WINDOWEVENT_FOCUS_LOST)
+        w->dragging=false;
     if (e->type==SDL_KEYDOWN && !e->key.repeat) return keypress(w,e->key.keysym.sym);
     if (e->type==SDL_MOUSEBUTTONDOWN || e->type==SDL_MOUSEBUTTONUP) {
+        /* SDL_RenderSetLogicalSize already scales queued mouse events. */
         int x=e->button.x,y=e->button.y;
-        logical_mouse(w,&x,&y);
         if (e->button.button==SDL_BUTTON_LEFT && e->type==SDL_MOUSEBUTTONDOWN) {
-            if (y>=HEIGHT && x>=90 && x<250) {
+            if (y>=HEIGHT+6 && y<HEIGHT+44 && x>=90 && x<250) {
                 w->bin=(uint32_t)((x-90)*512/160);
                 w->transient=true;
             } else pick(w,x,y);
@@ -237,6 +243,12 @@ static bool event(Workbench *w,const SDL_Event *e) {
     return true;
 }
 
+static bool pump(Workbench *w) {
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) if (!event(w,&e)) return false;
+    return true;
+}
+
 static bool snapshot(Workbench *w,const char *path) {
     int width,height;
     if (SDL_GetRendererOutputSize(w->renderer,&width,&height) ||
@@ -250,17 +262,88 @@ static bool snapshot(Workbench *w,const char *path) {
     return ok || vs_fail(&w->error,"SDL screenshot: %s",SDL_GetError());
 }
 
+static bool send_event(Workbench *w,SDL_Event e) {
+    if (SDL_PushEvent(&e)!=1) return vs_fail(&w->error,"could not queue SDL probe: %s",SDL_GetError());
+    return pump(w);
+}
+
+static bool send_key(Workbench *w,SDL_Keycode key) {
+    SDL_Event e={.type=SDL_KEYDOWN};
+    e.key.windowID=SDL_GetWindowID(w->window);
+    e.key.keysym.sym=key;
+    return send_event(w,e);
+}
+
+static bool send_button(Workbench *w,Uint32 type,Uint8 button,int x,int y) {
+    SDL_Event e={.type=type};
+    e.button.windowID=SDL_GetWindowID(w->window);
+    e.button.button=button;
+    int px,py;
+    SDL_RenderLogicalToWindow(w->renderer,x+.5f,y+.5f,&px,&py);
+    for (int dy=-1;dy<=1;++dy) for (int dx=-1;dx<=1;++dx) {
+        float lx,ly;
+        SDL_RenderWindowToLogical(w->renderer,px+dx,py+dy,&lx,&ly);
+        if ((int)floorf(lx)!=x || (int)floorf(ly)!=y) continue;
+        e.button.x=px+dx;
+        e.button.y=py+dy;
+        return send_event(w,e);
+    }
+    return vs_fail(&w->error,"workbench probe could not map a logical pixel to the window");
+}
+
 static bool smoke(Workbench *w,const char *path,unsigned spp) {
     for (unsigned i=0;i<360;++i) if (!update(w)) return false;
-    uint64_t old=w->scene.identity;
-    uint32_t count=w->film.pixels[w->picked].samples;
-    if (!count || !keypress(w,SDLK_SPACE) || !update(w) || w->film.pixels[w->picked].samples!=count ||
-        !keypress(w,SDLK_RIGHT) || old==w->scene.identity || w->film.pixels[w->picked].samples ||
-        !keypress(w,SDLK_SPACE)) return vs_fail(&w->error,"workbench pause/invalidation probe failed");
-    for (unsigned i=0;i<spp*(WIDTH/TILE)*(HEIGHT/TILE);++i) if (!update(w)) return false;
+    const uint32_t first_pick=35*WIDTH+27;
+    if (!send_button(w,SDL_MOUSEBUTTONDOWN,SDL_BUTTON_LEFT,27,35) || w->picked!=first_pick)
+        return vs_fail(&w->error,"workbench native viewport picking failed (picked %u)",w->picked);
+    uint32_t count=w->film.pixels[first_pick].samples;
+    if (!count || !send_key(w,SDLK_SPACE) || !w->paused || !update(w) ||
+        w->film.pixels[first_pick].samples!=count)
+        return vs_fail(&w->error,"workbench pause probe failed");
+
     SDL_SetWindowSize(w->window,480,425);
     SDL_PumpEvents();
-    return draw(w) && snapshot(w,path);
+    if (!pump(w) || !send_button(w,SDL_MOUSEBUTTONDOWN,SDL_BUTTON_LEFT,170,HEIGHT+20) ||
+        !w->transient || w->bin!=256 || !send_key(w,SDLK_RIGHTBRACKET) || w->bin!=257 ||
+        !draw(w) || w->film.pixels[first_pick].samples!=count)
+        return vs_fail(&w->error,"workbench resize or transient scrub probe failed (bin %u)",w->bin);
+
+    SDL_Event focus={.type=SDL_WINDOWEVENT};
+    focus.window.windowID=SDL_GetWindowID(w->window);
+    focus.window.event=SDL_WINDOWEVENT_FOCUS_LOST;
+    if (!send_button(w,SDL_MOUSEBUTTONDOWN,SDL_BUTTON_RIGHT,16,16) || !w->dragging ||
+        !send_event(w,focus) || w->dragging ||
+        !send_button(w,SDL_MOUSEBUTTONUP,SDL_BUTTON_RIGHT,31,31) || w->region.width!=WIDTH)
+        return vs_fail(&w->error,"workbench focus-loss drag cancellation failed");
+
+    if (!send_button(w,SDL_MOUSEBUTTONDOWN,SDL_BUTTON_RIGHT,16,16) ||
+        !send_button(w,SDL_MOUSEBUTTONUP,SDL_BUTTON_RIGHT,31,31) ||
+        w->region.x!=16 || w->region.y!=16 || w->region.width!=16 || w->region.height!=16)
+        return vs_fail(&w->error,"workbench resized region selection failed (%u,%u %ux%u)",
+                       w->region.x,w->region.y,w->region.width,w->region.height);
+    uint64_t old=w->scene.identity;
+    if (!send_key(w,SDLK_RIGHT) || old==w->scene.identity || w->film.pixels[first_pick].samples ||
+        !send_key(w,SDLK_SPACE) || w->paused || !update(w) ||
+        w->film.pixels[16*WIDTH+16].samples!=1 || w->film.pixels[first_pick].samples)
+        return vs_fail(&w->error,"workbench invalidation or bounded region rendering failed");
+
+    if (w->scene.explicit_lights) {
+        old=w->scene.identity;
+        if (!send_key(w,SDLK_3) || old==w->scene.identity || w->film.pixels[16*WIDTH+16].samples)
+            return vs_fail(&w->error,"workbench light edit kept stale samples");
+    }
+    if (!send_key(w,SDLK_r) || w->region.width!=WIDTH ||
+        !send_key(w,SDLK_t) || w->transient)
+        return vs_fail(&w->error,"workbench could not restore steady full-frame view");
+    for (unsigned i=0;i<spp*(WIDTH/TILE)*(HEIGHT/TILE);++i) if (!update(w)) return false;
+    if (!draw(w) || !snapshot(w,path) || !send_key(w,SDLK_x) ||
+        !send_key(w,SDLK_ESCAPE) || !w->quit)
+        return vs_fail(&w->error,"workbench capture, export or close probe failed");
+    printf("{\"backend\":\"%s\",\"picked\":%u,\"samples\":%u,\"scene\":\"%016llx\","
+           "\"window_width\":480,\"window_height\":425}\n",
+           w->gpu?"vulkan":"cpu",w->picked,w->film.pixels[w->picked].samples,
+           (unsigned long long)w->scene.identity);
+    return true;
 }
 
 int main(int argc,char **argv) {
@@ -280,6 +363,7 @@ int main(int argc,char **argv) {
     }
     Workbench w={.cfg={WIDTH,HEIGHT,1789,7,VS_STRATIFIED,VS_WAVELENGTH_MIXTURE,
         gpu?VS_BACKEND_VULKAN:VS_BACKEND_CPU,true,true},.gate={512,0,.125e-9},
+        .export_prefix=probe?argv[4]:"vesper-workbench",
         .region={0,0,WIDTH,HEIGHT},.picked=WIDTH*(HEIGHT/2)+WIDTH/2,.selection=UINT32_MAX};
     bool ok=vs_scene_load(&w.scene,argv[1],&w.error) && reopen(&w);
     if (ok && SDL_Init(SDL_INIT_VIDEO)) ok=vs_fail(&w.error,"SDL initialization: %s",SDL_GetError());
@@ -296,8 +380,7 @@ int main(int argc,char **argv) {
     }
     if (ok && probe) ok=smoke(&w,argv[4],spp);
     while (ok && !probe && !w.quit) {
-        SDL_Event e;
-        while (ok && SDL_PollEvent(&e)) ok=event(&w,&e);
+        ok=pump(&w);
         for (unsigned i=0;i<6 && ok && !w.quit;++i) ok=update(&w);
         if (ok && !w.quit) { ok=draw(&w); SDL_RenderPresent(w.renderer); }
         SDL_Delay(12);
