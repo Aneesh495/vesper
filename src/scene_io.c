@@ -162,10 +162,12 @@ static bool mesh(Parser *p) {
     uint32_t id=lookup(p,p->token[1],false);
     if (id==UINT32_MAX) return false;
     if (a[0]<=0 || a[1]<=0 || a[2]<=0 || a[9]<0 || a[9]>UINT32_MAX || floor(a[9])!=a[9])
-        return vs_fail(&p->detail,"invalid OBJ scale or boundary ID");
+        return vs_fail(&p->detail,"invalid mesh scale or boundary ID");
     VsPrimitive prim={.shape=VS_TRIANGLE,.material=id,.velocity=triple(a+6),.boundary=(uint32_t)a[9]};
     if (p->scene->materials[id].kind>=VS_DIELECTRIC && !prim.boundary)
         return vs_fail(&p->detail,"transmitting mesh requires a nonzero boundary ID");
+    if (!strcmp(p->token[0],"gltf"))
+        return vs_load_gltf(p->scene,prim,triple(a),triple(a+3),path,&p->detail);
     return vs_load_obj(p->scene,prim,triple(a),triple(a+3),path,&p->detail);
 }
 
@@ -196,7 +198,7 @@ static bool command(Parser *p) {
     if (!strcmp(op,"environment")) return light(p,VS_ENVIRONMENT,false);
     if (!strcmp(op,"medium")) return fog(p);
     if (!strcmp(op,"grid")) return grid(p);
-    if (!strcmp(op,"obj")) return mesh(p);
+    if (!strcmp(op,"obj") || !strcmp(op,"gltf")) return mesh(p);
     if (!strcmp(op,"world")) {
         if (p->count!=2) return vs_fail(&p->detail,"expected medium name");
         uint32_t id=lookup(p,p->token[1],true);

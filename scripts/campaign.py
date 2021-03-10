@@ -76,6 +76,8 @@ class Campaign:
     def execute(self):
         self.run("ctest", ["ctest", "--test-dir", self.build, "--output-on-failure"])
         self.run("geometry", [self.build / "vesper-geometry-check", "1000000"])
+        self.run("mesh-import", [sys.executable, "scripts/mesh_check.py", self.build / "vesper",
+                                 self.output / "mesh-import", "--gpu"], validate=True)
         self.run("grid-contract", [self.build / "vesper", "inspect", "scenes/veil.vs"])
         self.run("numerical", [self.build / "vesper-numerical-check"])
         self.run("temporal", [self.build / "vesper-temporal-check"])

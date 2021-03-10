@@ -51,6 +51,11 @@ bool vs_primitive_valid(const VsPrimitive *p) {
         double area=vs_length(vs_cross(vs_sub(p->b,p->a),vs_sub(p->c,p->a)));
         if (!isfinite(area) || area<=DBL_MIN) return false;
     }
+    if (p->has_uv) {
+        if (p->shape!=VS_TRIANGLE) return false;
+        for (unsigned i=0;i<3;++i)
+            if (!(fabs(p->uv[i].x)<=1e6 && fabs(p->uv[i].y)<=1e6)) return false;
+    }
     VsBounds bounds=vs_primitive_bounds(p);
     return vs_finite(bounds.lo) && vs_finite(bounds.hi);
 }

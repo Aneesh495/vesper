@@ -1,1 +1,2 @@
 data/CIE_xyz_1931_2deg.csv -text -whitespace
+vendor/cgltf/cgltf.h -text -whitespace

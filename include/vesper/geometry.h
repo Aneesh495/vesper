@@ -10,6 +10,7 @@
 #define VS_MAX_PRIMITIVES 2000000u
 #define VS_BVH_STACK 64u
 
+typedef struct { double x, y; } VsVec2;
 typedef struct { double x, y, z; } VsVec3;
 
 static inline VsVec3 vs_v(double x, double y, double z) { return (VsVec3){x,y,z}; }
@@ -33,6 +34,8 @@ typedef struct {
     double radius;
     uint32_t material, boundary;
     VsShape shape;
+    bool has_uv;
+    VsVec2 uv[3];
 } VsPrimitive;
 
 typedef struct {

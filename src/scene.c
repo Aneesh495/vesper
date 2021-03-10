@@ -222,6 +222,10 @@ static uint64_t scene_identity(const VsScene *s) {
         const VsPrimitive *p=s->primitives+i;
         h=word(word(word(h,p->shape),p->boundary),p->material);
         h=real(vec(vec(vec(vec(h,p->a),p->b),p->c),p->velocity),p->radius);
+        if (p->has_uv) {
+            h=word(h,UINT64_C(0x565350555653));
+            for (unsigned j=0;j<3;++j) h=real(real(h,p->uv[j].x),p->uv[j].y);
+        }
     }
     for (uint32_t i=0;i<s->material_count;++i) {
         const VsMaterial *m=s->materials+i;

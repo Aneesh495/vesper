@@ -98,3 +98,8 @@ docs:
 adaptive-check: build
 	mkdir -p run
 	python3 scripts/adaptive_check.py "$(BUILD_DIR)/vesper" "$$(mktemp -u run/adaptive.XXXXXX)" --backend "$(BACKEND)"
+
+.PHONY: mesh-check
+mesh-check: build
+	mkdir -p run
+	python3 scripts/mesh_check.py "$(BUILD_DIR)/vesper" "$$(mktemp -u run/mesh-check.XXXXXX)" $(MESH_CHECK_ARGS)

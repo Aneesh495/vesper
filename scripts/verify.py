@@ -74,7 +74,7 @@ def source_and_manifest(bundle, build, require_full):
     commands = {row["name"]: row for row in records(bundle / "COMMANDS.jsonl")}
     require(all(row["exit"] == 0 and row["seconds"] > 0 for row in commands.values()), "failed recorded command")
     require({"ctest", "geometry", "numerical", "temporal", "benchmark", "inverse",
-             "recovery", "gpu-recovery", "adaptive-cpu", "adaptive-vulkan", "trace", "showcases", "workbench", "gpu-workbench", "grid-contract"}.issubset(commands), "required command missing")
+             "recovery", "gpu-recovery", "adaptive-cpu", "adaptive-vulkan", "trace", "showcases", "workbench", "gpu-workbench", "grid-contract", "mesh-import"}.issubset(commands), "required command missing")
     return commands
 
 
@@ -273,6 +273,24 @@ def renders(bundle, commands):
         image(gallery, file.stem, 160, 100, 32, ".json")
 
 
+def mesh_import(bundle):
+    report = load(bundle / "mesh-import.stdout")
+    root = bundle / "mesh-import"
+    for backend in ("cpu", "vulkan"):
+        rendered = []
+        for asset in ("reference", "gltf", "glb"):
+            shape, channels, _ = exr(root / f"{backend}-{asset}.exr", ("X", "Y", "Z", "Samples"))
+            require(shape == (24,16) and set(channels["Samples"]) == {8}, "mesh render shape or budget mismatch")
+            rendered.append(channels)
+        require(rendered[0] == rendered[1] == rendered[2] and
+                sum(y > 0 for y in rendered[0]["Y"]) == report["visible_pixels"][backend] == 119,
+                "glTF and GLB transform or winding mismatch")
+    cases = {r["case"]: r for r in report["rejections"]}
+    for name, reason in {"short-view": "accessor", "index-offset": "accessor",
+                         "uri-escape": "relative files", "index-range": "triangle index outside"}.items():
+        require(cases[name]["exit"] == 2 and reason in cases[name]["reason"], f"glTF control {name} mismatch")
+
+
 def adaptive(bundle, backend):
     name = "adaptive-" + backend
     root = bundle / name
@@ -354,6 +372,7 @@ def work(bundle):
         require(row["triangles"] == 1_000_000 and row["samples"] == 512*256*16 and row["seconds"] > 0 and
                 row["path_segments"] >= row["samples"] and row["shadow_segments"] > 0 and
                 nearly(useful / row["seconds"], row["segments_per_s"], rel=1e-7), "benchmark workload or rate mismatch")
+    mesh_import(bundle)
     adaptive(bundle, "cpu")
     adaptive(bundle, "vulkan")
     recovery(bundle, "recovery", "cpu", 192*128*96)
