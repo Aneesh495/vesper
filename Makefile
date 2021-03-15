@@ -103,3 +103,8 @@ adaptive-check: build
 mesh-check: build
 	mkdir -p run
 	python3 scripts/mesh_check.py "$(BUILD_DIR)/vesper" "$$(mktemp -u run/mesh-check.XXXXXX)" $(MESH_CHECK_ARGS)
+
+.PHONY: texture-check
+texture-check: build
+	mkdir -p run
+	python3 scripts/texture_check.py "$(BUILD_DIR)/vesper" "$$(mktemp -u run/texture-check.XXXXXX)" $(TEXTURE_CHECK_ARGS)

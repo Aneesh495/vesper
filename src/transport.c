@@ -258,6 +258,8 @@ bool vs_trace_path(const VsScene *s,VsRender cfg,uint32_t pixel,uint32_t index,
                 continue;
             }
             if (v.depth>=cfg.max_depth) break;
+            if (v.material->texture.knots) v.beta*=vs_texture_factor(v.material,p,&hit,nm);
+            if (v.beta==0) break;
             if (cfg.nee && !direct(s,v,ray,rng,dim,out,&media,&next,trace,error)) return false;
             scatter=vs_bsdf_sample(v.material,nm,v.n,v.wo,state.phase,current(&next).phase,
                                    vs_sample(rng,dim+3),vs_sample(rng,dim+4),vs_sample(rng,dim+5));

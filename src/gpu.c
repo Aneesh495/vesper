@@ -10,12 +10,17 @@
 #include "wavefront.inc"
 
 enum { BATCH=8192, GROUP=64, COUNTERS=12, DEVICE_LIMIT=64 };
-enum { CONFIG,NODES,PRIMITIVES,MATERIALS,LIGHTS,WORK,STATES,HITS,SHADOWS,EVENTS,QUEUES,MEDIA,DENSITY,BUFFERS };
+enum { CONFIG,NODES,PRIMITIVES,MATERIALS,LIGHTS,WORK,STATES,HITS,SHADOWS,EVENTS,QUEUES,MEDIA,DENSITY,TEXTURE,BUFFERS };
 typedef struct { float x,y,z,w; } F4;
 typedef struct { uint32_t x,y,z,w; } U4;
 typedef struct { F4 lo,hi; U4 link; } GNode;
 typedef struct { F4 a,b,c,velocity; U4 info; } GPrimitive;
-typedef struct { F4 albedo[2],emission[2],eta[2],k[2],optics,pulse; U4 info; } GMaterial;
+typedef struct {
+    F4 albedo[2],emission[2],eta[2],k[2],optics,pulse;
+    U4 info;
+    F4 uv_transform;
+    U4 texture_info;
+} GMaterial;
 typedef struct { F4 vector,power[2],pulse; U4 info; } GLight;
 typedef struct { F4 eye,right,up,forward,shutter; U4 counts,media; } GConfig;
 typedef struct { F4 origin_time,dir_beta,point_delay,previous_pdf,spectral; U4 key,tracking,boundary[4]; } GState;
@@ -25,7 +30,7 @@ typedef struct { F4 absorption[2],scattering[2],lo,hi,optics; U4 grid,kind; } GM
 typedef struct { uint32_t pixel,sample; } Job;
 typedef struct { uint32_t stage,parity,count,seed,width,height,depth,flags,iteration; } Push;
 
-_Static_assert(sizeof(GNode)==48 && sizeof(GPrimitive)==80 && sizeof(GMaterial)==176 &&
+_Static_assert(sizeof(GNode)==48 && sizeof(GPrimitive)==80 && sizeof(GMaterial)==208 &&
                sizeof(GLight)==80 && sizeof(GConfig)==112 && sizeof(GState)==176 &&
                sizeof(GHit)==32 && sizeof(GShadow)==160 && sizeof(GMedium)==144 && sizeof(Job)==8 && sizeof(Push)==36,
                "std430 ABI");
@@ -250,10 +255,16 @@ static bool pack(VsGpu *g,const VsScene *s,VsError *error) {
         const VsMedium *m=s->media+i;
         grids+=(uint64_t)m->nx*m->ny*m->nz;
     }
+    uint64_t knots=0;
+    for (uint32_t i=0;i<s->material_count;++i) {
+        const VsTexture *t=&s->materials[i].texture;
+        knots+=(uint64_t)t->width*t->height*VS_SPECTRAL_KNOTS;
+    }
+    uint32_t uv_words=knots?6u*s->primitive_count:0;
     VkDeviceSize sizes[]={sizeof(GConfig),s->bvh.node_count*sizeof(GNode),s->primitive_count*sizeof(GPrimitive),
         s->material_count*sizeof(GMaterial),s->light_count*sizeof(GLight),BATCH*sizeof(Job),
         BATCH*sizeof(GState),BATCH*sizeof(GHit),BATCH*sizeof(GShadow),
-        BATCH*(2u*g->cfg.max_depth+1u)*sizeof(F4),(COUNTERS+3u*BATCH)*sizeof(uint32_t),s->medium_count*sizeof(GMedium),grids*sizeof(float)};
+        BATCH*(2u*g->cfg.max_depth+1u)*sizeof(F4),(COUNTERS+3u*BATCH)*sizeof(uint32_t),s->medium_count*sizeof(GMedium),grids*sizeof(float),(knots+uv_words)*sizeof(float)};
     for (unsigned i=0;i<BUFFERS;++i) if (!make_buffer(g,g->buffers+i,sizes[i],error)) return false;
     const VsCamera *c=s->cameras+s->camera;
     VsVec3 forward=vs_unit(vs_sub(c->target,c->position));
@@ -261,7 +272,7 @@ static bool pack(VsGpu *g,const VsScene *s,VsError *error) {
     GConfig *conf=g->buffers[CONFIG].data;
     *conf=(GConfig){vector(c->position,c->aperture),vector(right,c->focus),vector(up,0),
         vector(forward,tan(c->vfov*VS_PI/360)),{(float)c->shutter_open,(float)c->shutter_close,0,0},
-        {s->bvh.node_count,s->primitive_count,s->light_count,s->environment},{s->world_medium,0,0,0}};
+        {s->bvh.node_count,s->primitive_count,s->light_count,s->environment},{s->world_medium,knots!=0,0,0}};
     GNode *nodes=g->buffers[NODES].data;
     for (uint32_t i=0;i<s->bvh.node_count;++i) {
         VsNode n=s->bvh.nodes[i];
@@ -278,14 +289,24 @@ static bool pack(VsGpu *g,const VsScene *s,VsError *error) {
     uint32_t *inverse=s->primitive_count?malloc(s->primitive_count*sizeof *inverse):NULL;
     if (s->primitive_count && !inverse) return vs_fail(error,"Vulkan primitive reorder allocation failed");
     GPrimitive *primitive=g->buffers[PRIMITIVES].data;
+    float *texture=g->buffers[TEXTURE].data;
     for (uint32_t i=0;i<s->primitive_count;++i) {
         uint32_t j=s->bvh.order[i];
         inverse[j]=i;
         VsPrimitive p=s->primitives[j];
         primitive[i]=(GPrimitive){vector(p.a,p.radius),vector(p.b,0),vector(p.c,0),vector(p.velocity,0),
             {p.shape,p.material,p.boundary,j}};
+        if (knots) {
+            static const VsVec2 canonical[]={{0,0},{1,0},{0,1}};
+            const VsVec2 *uv=p.has_uv?p.uv:canonical;
+            for (unsigned k=0;k<3;++k) {
+                texture[6*i+2*k]=(float)uv[k].x;
+                texture[6*i+2*k+1]=(float)uv[k].y;
+            }
+        }
     }
     GMaterial *m=g->buffers[MATERIALS].data;
+    uint32_t texel_offset=uv_words;
     for (uint32_t i=0;i<s->material_count;++i) {
         const VsMaterial *p=s->materials+i;
         spectrum(m[i].albedo,p->albedo); spectrum(m[i].emission,p->emission);
@@ -293,6 +314,14 @@ static bool pack(VsGpu *g,const VsScene *s,VsError *error) {
         m[i].optics=(F4){(float)p->roughness,(float)p->ior_a,(float)p->ior_b,0};
         m[i].pulse=pulse(p->pulse);
         m[i].info=(U4){p->kind,p->albedo.kind,p->emission.kind,p->medium};
+        m[i].uv_transform=(F4){(float)p->uv_scale.x,(float)p->uv_scale.y,
+                               (float)p->uv_offset.x,(float)p->uv_offset.y};
+        m[i].texture_info=(U4){p->texture.width,p->texture.height,texel_offset,0};
+        if (p->texture.knots) {
+            uint32_t words=p->texture.width*p->texture.height*VS_SPECTRAL_KNOTS;
+            memcpy(texture+texel_offset,p->texture.knots,words*sizeof *texture);
+            texel_offset+=words;
+        }
     }
     GLight *l=g->buffers[LIGHTS].data;
     for (uint32_t i=0;i<s->light_count;++i) {

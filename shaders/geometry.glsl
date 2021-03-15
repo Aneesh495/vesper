@@ -15,7 +15,8 @@ bool box_hit(Node box,Ray ray,out float enter) {
     return true;
 }
 
-bool primitive_hit(Primitive p,Ray ray,out vec4 result) {
+bool primitive_hit(Primitive p,Ray ray,out vec4 result,out vec2 uv) {
+    uv=vec2(0);
     vec3 local=ray.o-p.velocity.xyz*ray.time;
     float t;
     vec3 normal;
@@ -46,6 +47,7 @@ bool primitive_hit(Primitive p,Ray ray,out vec4 result) {
         if (any(lessThan(e,vec3(0))) && any(greaterThan(e,vec3(0)))) return false;
         float det=e.x+e.y+e.z;
         if (det==0) return false;
+        if (scene.media.y!=0u) uv=e.yz/det;
         t=dot(e,vec3(a[k],b[k],c[k]))/(ray.d[k]*det);
         normal=normalize(cross(p.b.xyz-p.a.xyz,p.c.xyz-p.a.xyz));
     }
@@ -71,11 +73,12 @@ Hit traverse(Ray ray) {
             for (uint i=0;i<node.link.y;++i) {
                 uint id=node.link.x+i;
                 vec4 n;
-                if (!primitive_hit(primitives[id],ray,n)) continue;
+                vec2 uv;
+                if (!primitive_hit(primitives[id],ray,n,uv)) continue;
                 if (hit.id.x==NONE || n.w<ray.tmax ||
                     primitives[id].info.w<primitives[hit.id.x].info.w) {
                     ray.tmax=n.w;
-                    hit=Hit(n,uvec4(id,0,0,0));
+                    hit=Hit(n,uvec4(id,0u,floatBitsToUint(uv)));
                 }
             }
         } else {

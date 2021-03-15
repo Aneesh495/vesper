@@ -74,7 +74,7 @@ def source_and_manifest(bundle, build, require_full):
     commands = {row["name"]: row for row in records(bundle / "COMMANDS.jsonl")}
     require(all(row["exit"] == 0 and row["seconds"] > 0 for row in commands.values()), "failed recorded command")
     require({"ctest", "geometry", "numerical", "temporal", "benchmark", "inverse",
-             "recovery", "gpu-recovery", "adaptive-cpu", "adaptive-vulkan", "trace", "showcases", "workbench", "gpu-workbench", "grid-contract", "mesh-import"}.issubset(commands), "required command missing")
+             "recovery", "gpu-recovery", "adaptive-cpu", "adaptive-vulkan", "trace", "showcases", "workbench", "gpu-workbench", "grid-contract", "mesh-import", "texture-filter"}.issubset(commands), "required command missing")
     return commands
 
 
@@ -291,6 +291,27 @@ def mesh_import(bundle):
         require(cases[name]["exit"] == 2 and reason in cases[name]["reason"], f"glTF control {name} mismatch")
 
 
+def texture_filter(bundle):
+    root = bundle / "texture-filter"
+    report = load(bundle / "texture-filter.stdout")
+    levels = [x / 255 for x in (0, 64, 128, 255)]
+    average = math.fsum(levels) / 4
+    srgb = math.fsum((x / 12.92 if x < .04045 else ((x+.055)/1.055)**2.4) for x in levels) / 4
+    expected = {"linear": average, "binary": average, "repeat": average, "srgb": srgb, "offset": 1}
+    require(report["rejected_truncated_texture"] == 2 and nearly(report["linear_factor"], average) and
+            nearly(report["srgb_factor"], srgb), "texture control or decoding contract mismatch")
+    for backend in ("cpu", "vulkan"):
+        _, flat, _ = exr(root / f"{backend}-flat.exr", ("X", "Y", "Z", "Samples"))
+        require(max(flat["Y"]) > 0 and report["backend_results"][backend]["rejected_changed_texture"] == 1,
+                "empty texture fixture or changed texture checkpoint accepted")
+        for name, factor in expected.items():
+            shape, color, _ = exr(root / f"{backend}-{name}.exr", flat)
+            require(shape == (24,16) and set(color["Samples"]) == {12}, "texture fixture sample mismatch")
+            for c in ("X", "Y", "Z"):
+                require(all(nearly(x*factor,y,rel=3e-6,abs_=1e-8) for x,y in zip(flat[c],color[c])),
+                        f"{backend} texture filtering mismatch for {name}")
+
+
 def adaptive(bundle, backend):
     name = "adaptive-" + backend
     root = bundle / name
@@ -373,6 +394,7 @@ def work(bundle):
                 row["path_segments"] >= row["samples"] and row["shadow_segments"] > 0 and
                 nearly(useful / row["seconds"], row["segments_per_s"], rel=1e-7), "benchmark workload or rate mismatch")
     mesh_import(bundle)
+    texture_filter(bundle)
     adaptive(bundle, "cpu")
     adaptive(bundle, "vulkan")
     recovery(bundle, "recovery", "cpu", 192*128*96)

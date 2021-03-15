@@ -11,7 +11,7 @@ make verify EVIDENCE=evidence/local-m2-01
 make negative-controls EVIDENCE=evidence/local-m2-01 CONTROL_LOG=evidence/local-m2-01-controls.jsonl
 ```
 
-The run ID must be new. The diagnostic bundle retains raw EXR, temporal checkpoints, trace records and a native SDL render capture. Six transient films occupy about 2.4 GiB. The exact replay executables are the binaries in the build directory identified in the environment record. Pass that directory through BUILD_DIR if you used an external build.
+The run ID must be new. The diagnostic bundle retains raw EXR, temporal checkpoints, trace records and a native SDL render capture. The six transient films and two workbench checkpoints occupy about 3 GiB in total. The exact replay executables are the binaries in the build directory identified in the environment record. Pass that directory through BUILD_DIR if you used an external build.
 
 On macOS with Homebrew Vulkan libraries, run the validation probe with the library search path applied directly to the executable.
 

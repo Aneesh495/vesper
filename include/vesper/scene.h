@@ -8,6 +8,8 @@
 #define VS_MAX_LIGHTS 65536u
 #define VS_MAX_MEDIA 64u
 #define VS_MAX_CAMERAS 16u
+#define VS_MAX_TEXTURE_EDGE 4096u
+#define VS_TEXTURE_KNOT_LIMIT (16u*1024u*1024u)
 #define VS_WORLD_LIMIT 1000000.0
 #define VS_C 299792458.0
 
@@ -17,12 +19,19 @@ typedef enum {
 
 typedef struct { double start,width; } VsPulse;
 typedef struct {
+    uint32_t width,height;
+    float *knots;
+    bool srgb;
+} VsTexture;
+typedef struct {
     char name[VS_NAME];
     VsMaterialKind kind;
     VsSpectrum albedo, emission, eta, k;
     double roughness,ior_a,ior_b;
     uint32_t medium;
     VsPulse pulse;
+    VsTexture texture;
+    VsVec2 uv_scale,uv_offset;
 } VsMaterial;
 
 typedef enum { VS_POINT, VS_DISTANT, VS_AREA, VS_ENVIRONMENT } VsLightKind;
@@ -71,6 +80,9 @@ bool vs_scene_init(VsScene *s, VsError *error);
 void vs_scene_destroy(VsScene *s);
 bool vs_scene_add_primitive(VsScene *s, VsPrimitive p, VsError *error);
 bool vs_scene_add_material(VsScene *s, VsMaterial m, VsError *error);
+bool vs_scene_set_texture(VsScene *s,uint32_t material,const VsTexture *texture,
+                          VsVec2 scale,VsVec2 offset,VsError *error);
+double vs_texture_factor(const VsMaterial *m,const VsPrimitive *p,const VsHit *hit,double nm);
 bool vs_scene_add_light(VsScene *s, VsLight l, VsError *error);
 bool vs_scene_add_medium(VsScene *s, const VsMedium *m, VsError *error);
 bool vs_scene_compile(VsScene *s, VsError *error);

@@ -6,7 +6,12 @@ const uint BATCH=8192u;
 
 struct Node { vec4 lo,hi; uvec4 link; };
 struct Primitive { vec4 a,b,c,velocity; uvec4 info; };
-struct Material { vec4 albedo[2],emission[2],eta[2],k[2],optics,pulse; uvec4 info; };
+struct Material {
+    vec4 albedo[2],emission[2],eta[2],k[2],optics,pulse;
+    uvec4 info;
+    vec4 uv_transform;
+    uvec4 texture_info;
+};
 struct Light { vec4 vector,power[2],pulse; uvec4 info; };
 struct State {
     vec4 origin_time,dir_beta,point_delay,previous_pdf,spectral;
@@ -38,6 +43,7 @@ layout(std430,binding=9) buffer Events { vec4 events[]; };
 layout(std430,binding=10) buffer Queues { uint counter[12]; uint queue[]; };
 layout(std430,binding=11) readonly buffer Media { Medium media[]; };
 layout(std430,binding=12) readonly buffer Densities { float density[]; };
+layout(std430,binding=13) readonly buffer TextureData { float texels[]; };
 layout(push_constant) uniform Push {
     uint stage,parity,count,seed,width,height,depth,flags,iteration;
 } pc;

@@ -8,4 +8,7 @@ bool vs_load_obj(VsScene *s,VsPrimitive p,VsVec3 scale,VsVec3 translation,const 
 
 bool vs_load_gltf(VsScene *s,VsPrimitive p,VsVec3 scale,VsVec3 translation,const char *path,VsError *error);
 
+bool vs_load_texture(VsScene *s,uint32_t material,const char *path,bool srgb,
+                     VsVec2 scale,VsVec2 offset,VsError *error);
+
 #endif

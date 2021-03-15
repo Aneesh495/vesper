@@ -65,12 +65,54 @@ static bool vertex_index(char *word,size_t count,size_t *id) {
     return true;
 }
 
+typedef struct { VsVec3 *values; size_t count,capacity; } ObjList;
+
+static bool obj_value(ObjList *list,char **cursor,unsigned dimensions) {
+    if (list->count>=VS_MAX_PRIMITIVES) return false;
+    if (list->count==list->capacity) {
+        size_t cap=list->capacity?list->capacity+list->capacity/2+1:64;
+        if (cap>VS_MAX_PRIMITIVES) cap=VS_MAX_PRIMITIVES;
+        VsVec3 *next=realloc(list->values,cap*sizeof *next);
+        if (!next) return false;
+        list->values=next;
+        list->capacity=cap;
+    }
+    double a[3]={0};
+    for (unsigned i=0;i<dimensions;++i) {
+        char *w=token(cursor),*end;
+        errno=0;
+        a[i]=strtod(w,&end);
+        if (errno || end==w || *end || !isfinite(a[i])) return false;
+    }
+    if (*token(cursor)) return false;
+    list->values[list->count++]=vs_v(a[0],a[1],a[2]);
+    return true;
+}
+
+typedef struct { size_t vertex,uv; bool has_uv; } ObjCorner;
+
+static bool obj_corner(char *word,const ObjList *vertices,const ObjList *uvs,const ObjList *normals,
+                       ObjCorner *corner) {
+    *corner=(ObjCorner){0};
+    char *uv=strchr(word,'/');
+    if (uv) *uv++='\0';
+    if (!vertex_index(word,vertices->count,&corner->vertex)) return false;
+    if (!uv) return true;
+    char *normal=strchr(uv,'/');
+    if (normal) *normal++='\0';
+    if (*uv) {
+        if (!vertex_index(uv,uvs->count,&corner->uv)) return false;
+        corner->has_uv=true;
+    } else if (!normal) return false;
+    size_t id;
+    return !normal || vertex_index(normal,normals->count,&id);
+}
+
 bool vs_load_obj(VsScene *s,VsPrimitive p,VsVec3 scale,VsVec3 translation,const char *path,VsError *error) {
     FILE *file=fopen(path,"rb");
     if (!file) return vs_fail(error,"could not open OBJ %s",path);
     bool ok=true;
-    VsVec3 *vertices=NULL;
-    size_t count=0,cap=0;
+    ObjList vertices={0},uvs={0},normals={0};
     uint32_t faces=0,line=0,original_count=s->primitive_count;
     uint64_t original_id=s->identity;
     char buffer[4096];
@@ -81,39 +123,42 @@ bool vs_load_obj(VsScene *s,VsPrimitive p,VsVec3 scale,VsVec3 translation,const 
         if (end) *end='\0';
         char *cursor=buffer,*command=token(&cursor);
         if (!*command || !strcmp(command,"o") || !strcmp(command,"g") || !strcmp(command,"s")) continue;
-        if (!strcmp(command,"v")) {
-            if (count>=VS_MAX_PRIMITIVES) { ok=false; break; }
-            if (count==cap) {
-                cap=cap?cap+cap/2+1:64;
-                if (cap>VS_MAX_PRIMITIVES) cap=VS_MAX_PRIMITIVES;
-                VsVec3 *next=realloc(vertices,cap*sizeof *next);
-                if (!next) { ok=false; break; }
-                vertices=next;
+        if (!strcmp(command,"v")) ok=obj_value(&vertices,&cursor,3);
+        else if (!strcmp(command,"vt")) ok=obj_value(&uvs,&cursor,2);
+        else if (!strcmp(command,"vn")) {
+            ok=obj_value(&normals,&cursor,3);
+            if (ok) {
+                double length=vs_length(normals.values[normals.count-1]);
+                ok=isfinite(length) && length>0;
             }
-            double a[3];
-            for (unsigned i=0;i<3;++i) {
-                char *w=token(&cursor);
-                errno=0;
-                a[i]=strtod(w,&end);
-                if (errno || end==w || *end || !isfinite(a[i])) { ok=false; break; }
-            }
-            if (!ok || *token(&cursor)) { ok=false; break; }
-            vertices[count++]=vs_add(vs_v(a[0]*scale.x,a[1]*scale.y,a[2]*scale.z),translation);
         } else if (!strcmp(command,"f")) {
-            size_t ids[3];
+            ObjCorner corner[3];
             for (unsigned i=0;i<3;++i)
-                if (!vertex_index(token(&cursor),count,&ids[i])) { ok=false; break; }
-            if (!ok || *token(&cursor)) { ok=false; break; }
-            p.a=vertices[ids[0]]; p.b=vertices[ids[1]]; p.c=vertices[ids[2]];
+                if (!obj_corner(token(&cursor),&vertices,&uvs,&normals,corner+i)) { ok=false; break; }
+            if (!ok || *token(&cursor) || corner[0].has_uv!=corner[1].has_uv ||
+                corner[0].has_uv!=corner[2].has_uv) { ok=false; break; }
+            VsVec3 v[3];
+            p.has_uv=corner[0].has_uv;
+            for (unsigned i=0;i<3;++i) {
+                VsVec3 point=vertices.values[corner[i].vertex];
+                v[i]=vs_add(vs_v(point.x*scale.x,point.y*scale.y,point.z*scale.z),translation);
+                if (p.has_uv) {
+                    VsVec3 uv=uvs.values[corner[i].uv];
+                    p.uv[i]=(VsVec2){uv.x,1-uv.y};
+                }
+            }
+            p.a=v[0]; p.b=v[1]; p.c=v[2];
             if (!vs_scene_add_primitive(s,p,error)) { ok=false; break; }
             ++faces;
         } else ok=false;
     }
     if (ferror(file) || !faces) ok=false;
     fclose(file);
-    free(vertices);
+    free(vertices.values);
+    free(uvs.values);
+    free(normals.values);
     if (ok) return true;
     s->primitive_count=original_count;
     s->identity=original_id;
-    return vs_fail(error,"invalid, empty or unsupported position-only triangle OBJ %s:%u",path,line);
+    return vs_fail(error,"invalid, empty or unsupported triangle OBJ %s:%u",path,line);
 }

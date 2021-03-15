@@ -15,6 +15,7 @@ make doctor
 make test
 make render SCENE=scenes/afterglow.vs SIZE=320 HEIGHT=200 SPP=64
 make gpu-probe
+make render SCENE=scenes/ceramic.vs SPP=128 RENDER_ARGS="--backend vulkan --adaptive-rel .45"
 make workbench SCENE=scenes/veil.vs WORKBENCH_BACKEND=vulkan
 make transient SCENE=scenes/prism.vs SIZE=256 HEIGHT=256 SPP=32 RENDER_ARGS="--backend vulkan" OUT=run/prism
 make inverse

@@ -5,6 +5,7 @@ layout(local_size_x=64) in;
 #include "geometry.glsl"
 #include "scatter.glsl"
 #include "volume.glsl"
+#include "texture.glsl"
 
 float mis(float a,float b) { float r=b/a; return 1./(1.+r*r); }
 uint offset_of(uint slot) { return slot*(2u*pc.depth+1u)+2u*pc.iteration; }
@@ -218,6 +219,10 @@ void shade(uint slot) {
         }
     }
     if (s.key.z>=pc.depth || s.dir_beta.w==0.) return;
+    if (!volume && m.texture_info.x!=0u) {
+        s.dir_beta.w*=texture_factor(m,primitives[h.id.x],h,nm);
+        if (s.dir_beta.w==0.) return;
+    }
     uint dim=6u+12u*s.key.z;
     if (nee) direct_light(slot,s,m,n,wo,ni,nt,next_stack,next,dim,volume,g,h.id.x);
     vec3 u=vec3(sample_at(s.key.xy,dim+3),sample_at(s.key.xy,dim+4),sample_at(s.key.xy,dim+5));
