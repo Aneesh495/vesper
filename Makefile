@@ -108,3 +108,9 @@ mesh-check: build
 texture-check: build
 	mkdir -p run
 	python3 scripts/texture_check.py "$(BUILD_DIR)/vesper" "$$(mktemp -u run/texture-check.XXXXXX)" $(TEXTURE_CHECK_ARGS)
+
+.PHONY: mitsuba-check
+REFERENCE_PYTHON ?= python3
+mitsuba-check: build
+	mkdir -p run
+	"$(REFERENCE_PYTHON)" scripts/mitsuba_check.py "$(BUILD_DIR)/vesper" "$$(mktemp -u run/mitsuba.XXXXXX)"

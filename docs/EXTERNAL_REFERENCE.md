@@ -1,0 +1,7 @@
+# Matched spectral reference
+
+The optional Mitsuba comparison studies two direct-light configurations. Both renderers see the same diffuse patch with reflectance 0.6, a uniform spectrum with emitter radiance 2.1, the same overhead rectangular emitter, and a nearly axial pinhole camera. The path cap admits one diffuse reflection and its light connection. The independent scalar integral integrates the squared distance and cosine geometry term over the square emitter.
+
+The fixtures use half-width and height pairs (0.5, 2.0) and (0.875, 1.5) metres. They use seeds 11, 19 and 47, with budgets of 16,384 and 131,072 samples. Vesper divides raw Y by its exact CIE observer integral. Mitsuba uses its scalar spectral variant with a separate unit-radiance calibration for its sensor and film gain. Both emitters are constant across the wavelength support. The 131,072-sample results must agree with the scalar integral and with each other to within 2 percent of the integral for every seed. The two renders use independent sampling implementations.
+
+The optional tool pins Mitsuba 3.9.0, Dr.Jit 1.4.0 and NumPy 2.2.6. Install those packages in an isolated Python environment, build Vesper and run **make mitsuba-check REFERENCE_PYTHON=/path/to/venv/bin/python**. The report preserves all budgets and seeds, raw film values and calibration outputs. The external renderer is used only for these measurements. [Mitsuba release](https://github.com/mitsuba-renderer/mitsuba3/releases/tag/v3.9.0)
