@@ -347,10 +347,12 @@ def recovery(bundle, name, backend, samples):
             rec["resumed"]["scene"] == rec["interrupted"]["scene"], "changed scene reused an existing film")
     require(hash_file(paths / "complete.vfilm") == hash_file(paths / "resumed.vfilm") == rec["sha256"],
             f"resumed {backend} result differs from uninterrupted result")
+    log = (paths / "interrupted.log").read_text()
+    require("checkpoint rows=" in log and "progress rows=" in log, "periodic checkpoint was not observed")
     if backend == "vulkan":
         require(struct.unpack_from("<Q", header, 56)[0] != 0 and
                 struct.unpack_from("<I", header, 44)[0] == 128 and
-                "validation=1" in (paths / "interrupted.log").read_text() and
+                "validation=1" in log and
                 "mismatch" in rec["rejected_backend"] and "mismatch" in rec["rejected_device"],
                 "GPU recovery device, gate or validation contract mismatch")
 

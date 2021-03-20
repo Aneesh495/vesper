@@ -21,3 +21,7 @@ env DYLD_LIBRARY_PATH=/opt/homebrew/lib VESPER_VALIDATION=1 \
 ```
 
 Use PROFILE=full to check full acceptance readiness. The current preflight stops with an explicit failed status while required capabilities and full campaigns remain open. Release verification requires full acceptance. The [experiment plan](EXPERIMENT_PLAN.md) defines the diagnostic and full workloads and the [build status](BUILD_STATUS.md) identifies open gates.
+
+## Long showcase renders
+
+Run **make showcase-full OUT=run/full-gallery** for the six fixed Vulkan jobs at 1920 by 1080 and 1,024 samples per pixel. The script uses the same stratified sampler, seed 1789 and depth 8 for Afterglow, Veil, Prism, Iris, Shutter and Array. Its per-scene logs report completed row blocks and checkpoint writes. A checkpoint is published after at least 128 additional rows of retained work, plus at clean completion or interruption. The same command resumes from existing checkpoints after matching scene, device and render contracts. Use a fresh output directory after changing the shader, scene or integrator. These outputs contribute to G13 and require separate full campaign verification.

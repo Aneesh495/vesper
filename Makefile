@@ -114,3 +114,7 @@ REFERENCE_PYTHON ?= python3
 mitsuba-check: build
 	mkdir -p run
 	"$(REFERENCE_PYTHON)" scripts/mitsuba_check.py "$(BUILD_DIR)/vesper" "$$(mktemp -u run/mitsuba.XXXXXX)"
+
+.PHONY: showcase-full
+showcase-full: build
+	sh scripts/showcase_full.sh "$(BUILD_DIR)/vesper" "$(OUT)"

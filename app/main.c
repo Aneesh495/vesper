@@ -12,7 +12,7 @@ typedef struct {
     VsRender cfg;
     VsGate gate;
     VsRegion region;
-    uint32_t spp,pixel,sample,bin;
+    uint32_t spp,pixel,sample,bin,checkpoint_rows;
     double exposure,adaptive_error;
     bool progress;
     const char *prefix,*checkpoint,*resume;
@@ -30,7 +30,7 @@ static void usage(void) {
           "  --adaptive-rel X (independent CPU pilot, spp is the main-film cap)\n"
           "  --sampler random|stratified|halton --wavelength uniform|mixture\n"
           "  --bins N --start-ns X --step-ns X --bin N --exposure X\n"
-          "  --prefix PATH --checkpoint PATH --resume PATH --pixel N --sample N\n"
+          "  --prefix PATH --checkpoint PATH --checkpoint-rows N --resume PATH --pixel N --sample N\n"
           "  --backend cpu|vulkan --region X Y W H --progress --no-nee --no-roulette\n",stderr);
 }
 
@@ -73,6 +73,7 @@ static bool arguments(Options *o,int argc,char **argv,VsError *error) {
         else if (!strcmp(key,"--bins")) number=&o->gate.bins;
         else if (!strcmp(key,"--pixel")) number=&o->pixel;
         else if (!strcmp(key,"--sample")) number=&o->sample;
+        else if (!strcmp(key,"--checkpoint-rows")) number=&o->checkpoint_rows;
         else if (!strcmp(key,"--bin")) number=&o->bin;
         else if (!strcmp(key,"--start-ns")) real=&ns_start;
         else if (!strcmp(key,"--step-ns")) real=&ns_step;
@@ -106,6 +107,8 @@ static bool arguments(Options *o,int argc,char **argv,VsError *error) {
     if (!vs_render_valid(o->cfg,error) || o->spp<1 || o->spp>VS_MAX_SPP ||
         (o->bin!=UINT32_MAX && o->bin>=o->gate.bins) || fabs(o->exposure)>40)
         return vs_fail(error,"invalid render options");
+    if (o->checkpoint_rows && (!o->checkpoint || !strcmp(argv[1],"trace")))
+        return vs_fail(error,"periodic checkpoints require --checkpoint and a render");
     if (o->adaptive_error!=0 && (!(o->adaptive_error>=.001 && o->adaptive_error<=1) ||
         o->cfg.sampler!=VS_RANDOM || o->spp<VS_ADAPTIVE_PILOT_SPP || !strcmp(argv[1],"trace")))
         return vs_fail(error,"adaptive sampling requires a render, random sampling, at least 16 spp and relative error in [.001,1]");
@@ -172,6 +175,8 @@ static bool render(const VsScene *s,const Options *o,bool probe,VsError *error) 
     uint32_t rows=gpu?8:16;
     uint32_t *targets=o->adaptive_error?malloc((size_t)columns*rows*sizeof *targets):NULL;
     if (o->adaptive_error && !targets) ok=vs_fail(error,"adaptive target allocation failed");
+    uint32_t last_saved=0;
+    uint64_t last_saved_samples=0;
     for (uint32_t y=r.y;ok && !stop && y<r.y+r.height;y+=rows) {
         for (uint32_t x=r.x;ok && !stop && x<r.x+r.width;x+=columns) {
             VsRegion tile={x,y,(uint32_t)fmin(columns,r.x+r.width-x),(uint32_t)fmin(rows,r.y+r.height-y)};
@@ -183,9 +188,19 @@ static bool render(const VsScene *s,const Options *o,bool probe,VsError *error) 
             ok=gpu?vs_gpu_render_budget(gpu,s,&f,budget,&stats,error):
                 vs_render_cpu_budget(s,&f,budget,&stats,error);
         }
+        uint32_t completed=(uint32_t)fmin(y-r.y+rows,r.height);
+        if (ok && !stop && o->checkpoint_rows && completed<r.height &&
+            completed-last_saved>=o->checkpoint_rows && stats.samples!=last_saved_samples) {
+            ok=vs_checkpoint_write(&f,o->checkpoint,error);
+            if (ok) {
+                last_saved=completed;
+                last_saved_samples=stats.samples;
+                if (o->progress) fprintf(stderr,"checkpoint rows=%u/%u\n",completed,r.height);
+            }
+        }
         if (ok && !stop && o->progress) {
             fprintf(stderr,"progress rows=%u/%u samples=%llu\n",
-                (uint32_t)fmin(y-r.y+rows,r.height),r.height,(unsigned long long)stats.samples);
+                completed,r.height,(unsigned long long)stats.samples);
             fflush(stderr);
         }
     }

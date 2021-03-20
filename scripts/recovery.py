@@ -71,8 +71,10 @@ def recovery(binary, output, backend):
     if backend == "vulkan":
         argv += ["--bins", "128", "--step-ns", ".5"]
     total = width * height * spp
-    interrupted, interrupt_log = interrupt_after_progress(argv + ["--checkpoint", str(partial), "--progress"])
+    interrupted, interrupt_log = interrupt_after_progress(argv + ["--checkpoint", str(partial), "--checkpoint-rows", "8", "--progress"])
     (output / "interrupted.log").write_text(interrupt_log)
+    if "checkpoint rows=" not in interrupt_log:
+        raise ValueError("first progress stripe did not publish a periodic checkpoint")
     if not 0 < interrupted["samples"] < total or not interrupted["interrupted"]:
         raise ValueError("interrupted job did not make partial progress")
     out = execute(argv + ["--resume", str(partial), "--checkpoint", str(resumed)])
