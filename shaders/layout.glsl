@@ -11,6 +11,8 @@ struct Material {
     uvec4 info;
     vec4 uv_transform;
     uvec4 texture_info;
+    vec4 normal_transform;
+    uvec4 normal_info;
 };
 struct Light { vec4 vector,power[2],pulse; uvec4 info; };
 struct State {

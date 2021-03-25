@@ -24,6 +24,12 @@ typedef struct {
     bool srgb;
 } VsTexture;
 typedef struct {
+    uint32_t width,height;
+    float *rgb;
+    VsVec2 scale,offset;
+    double strength;
+} VsNormalMap;
+typedef struct {
     char name[VS_NAME];
     VsMaterialKind kind;
     VsSpectrum albedo, emission, eta, k;
@@ -32,6 +38,7 @@ typedef struct {
     VsPulse pulse;
     VsTexture texture;
     VsVec2 uv_scale,uv_offset;
+    VsNormalMap normal_map;
 } VsMaterial;
 
 typedef enum { VS_POINT, VS_DISTANT, VS_AREA, VS_ENVIRONMENT } VsLightKind;
@@ -82,6 +89,9 @@ bool vs_scene_add_primitive(VsScene *s, VsPrimitive p, VsError *error);
 bool vs_scene_add_material(VsScene *s, VsMaterial m, VsError *error);
 bool vs_scene_set_texture(VsScene *s,uint32_t material,const VsTexture *texture,
                           VsVec2 scale,VsVec2 offset,VsError *error);
+bool vs_scene_set_normal_map(VsScene *s,uint32_t material,const VsNormalMap *map,VsError *error);
+VsVec3 vs_shading_normal(const VsMaterial *m,const VsPrimitive *p,const VsHit *hit,VsVec3 geometric);
+double vs_shading_factor(VsVec3 geometric,VsVec3 shading,VsVec3 direction);
 double vs_texture_factor(const VsMaterial *m,const VsPrimitive *p,const VsHit *hit,double nm);
 bool vs_scene_add_light(VsScene *s, VsLight l, VsError *error);
 bool vs_scene_add_medium(VsScene *s, const VsMedium *m, VsError *error);

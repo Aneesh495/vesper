@@ -34,7 +34,10 @@ bool vs_scene_init(VsScene *s, VsError *error) {
 void vs_scene_destroy(VsScene *s) {
     if (!s) return;
     free(s->primitives);
-    for (uint32_t i=0;i<s->material_count;++i) free(s->materials[i].texture.knots);
+    for (uint32_t i=0;i<s->material_count;++i) {
+        free(s->materials[i].texture.knots);
+        free(s->materials[i].normal_map.rgb);
+    }
     free(s->materials);
     free(s->lights);
     for (uint32_t i=0;i<s->medium_count;++i) free(s->media[i].density);
@@ -80,21 +83,39 @@ bool vs_scene_add_primitive(VsScene *s, VsPrimitive p, VsError *error) {
 
 static double spectrum_max(VsSpectrum s);
 
+static uint64_t image_size(uint32_t width,uint32_t height,uint32_t channels) {
+    return (uint64_t)width*height*channels;
+}
+
 static uint64_t texture_size(const VsTexture *texture) {
-    return (uint64_t)texture->width*texture->height*VS_SPECTRAL_KNOTS;
+    return image_size(texture->width,texture->height,VS_SPECTRAL_KNOTS);
+}
+
+static uint64_t normal_map_size(const VsNormalMap *map) {
+    return image_size(map->width,map->height,3);
+}
+
+static bool image_valid(const float *data,uint32_t width,uint32_t height,uint32_t channels,VsVec2 scale,VsVec2 offset) {
+    if (!data) return !width && !height;
+    if (!width || !height || width>VS_MAX_TEXTURE_EDGE || height>VS_MAX_TEXTURE_EDGE ||
+        image_size(width,height,channels)>VS_TEXTURE_KNOT_LIMIT ||
+        !(fabs(scale.x)<=1024 && fabs(scale.y)<=1024 && fabs(offset.x)<=1e6 && fabs(offset.y)<=1e6))
+        return false;
+    for (size_t i=0;i<image_size(width,height,channels);++i)
+        if (!(data[i]>=0 && data[i]<=1)) return false;
+    return true;
+}
+
+static bool normal_map_valid(const VsNormalMap *map) {
+    return map->strength>=0 && map->strength<=1 &&
+        image_valid(map->rgb,map->width,map->height,3,map->scale,map->offset);
 }
 
 static bool texture_valid(const VsMaterial *m) {
     const VsTexture *t=&m->texture;
-    if (!t->knots) return !t->width && !t->height;
-    if (m->kind!=VS_DIFFUSE || !t->width || !t->height || t->width>VS_MAX_TEXTURE_EDGE ||
-        t->height>VS_MAX_TEXTURE_EDGE || texture_size(t)>VS_TEXTURE_KNOT_LIMIT ||
-        !(fabs(m->uv_scale.x)<=1024 && fabs(m->uv_scale.y)<=1024 &&
-          fabs(m->uv_offset.x)<=1e6 && fabs(m->uv_offset.y)<=1e6))
-        return false;
-    for (size_t i=0;i<texture_size(t);++i)
-        if (!(t->knots[i]>=0 && t->knots[i]<=1)) return false;
-    return true;
+    return (!(t->knots || m->normal_map.rgb) || m->kind==VS_DIFFUSE) &&
+        image_valid(t->knots,t->width,t->height,VS_SPECTRAL_KNOTS,m->uv_scale,m->uv_offset) &&
+        normal_map_valid(&m->normal_map);
 }
 
 static bool material_valid(VsMaterial m, uint32_t media) {
@@ -109,7 +130,7 @@ static bool material_valid(VsMaterial m, uint32_t media) {
 }
 
 bool vs_scene_add_material(VsScene *s, VsMaterial m, VsError *error) {
-    if (m.texture.knots || !material_valid(m,s->medium_count))
+    if (m.texture.knots || m.normal_map.rgb || !material_valid(m,s->medium_count))
         return vs_fail(error,"invalid material or texture must be attached separately");
     for (uint32_t i=0;i<s->material_count;++i)
         if (!strcmp(m.name,s->materials[i].name)) return vs_fail(error,"duplicate material %s",m.name);
@@ -132,8 +153,10 @@ bool vs_scene_set_texture(VsScene *s,uint32_t id,const VsTexture *texture,
     candidate.uv_offset=offset;
     if (!texture_valid(&candidate)) return vs_fail(error,"invalid diffuse texture or UV transform");
     uint64_t total=texture_size(texture);
-    for (uint32_t i=0;i<s->material_count;++i)
+    for (uint32_t i=0;i<s->material_count;++i) {
         if (i!=id) total+=texture_size(&s->materials[i].texture);
+        total+=normal_map_size(&s->materials[i].normal_map);
+    }
     if (total>VS_TEXTURE_KNOT_LIMIT) return vs_fail(error,"scene texture budget exceeded");
     size_t bytes=(size_t)texture_size(texture)*sizeof(float);
     candidate.texture.knots=malloc(bytes);
@@ -141,6 +164,26 @@ bool vs_scene_set_texture(VsScene *s,uint32_t id,const VsTexture *texture,
     memcpy(candidate.texture.knots,texture->knots,bytes);
     free(s->materials[id].texture.knots);
     s->materials[id]=candidate;
+    s->identity=0;
+    return true;
+}
+
+bool vs_scene_set_normal_map(VsScene *s,uint32_t id,const VsNormalMap *map,VsError *error) {
+    if (id>=s->material_count || s->materials[id].kind!=VS_DIFFUSE || !map || !map->rgb || !normal_map_valid(map))
+        return vs_fail(error,"invalid diffuse normal map or UV transform");
+    uint64_t total=normal_map_size(map);
+    for (uint32_t i=0;i<s->material_count;++i) {
+        if (i!=id) total+=normal_map_size(&s->materials[i].normal_map);
+        total+=texture_size(&s->materials[i].texture);
+    }
+    if (total>VS_TEXTURE_KNOT_LIMIT) return vs_fail(error,"scene texture budget exceeded");
+    size_t bytes=(size_t)normal_map_size(map)*sizeof(float);
+    float *rgb=malloc(bytes);
+    if (!rgb) return vs_fail(error,"normal map allocation failed");
+    memcpy(rgb,map->rgb,bytes);
+    free(s->materials[id].normal_map.rgb);
+    s->materials[id].normal_map=*map;
+    s->materials[id].normal_map.rgb=rgb;
     s->identity=0;
     return true;
 }
@@ -280,6 +323,12 @@ static uint64_t scene_identity(const VsScene *s) {
             h=real(real(real(real(h,m->uv_scale.x),m->uv_scale.y),m->uv_offset.x),m->uv_offset.y);
             for (size_t j=0;j<texture_size(&m->texture);++j) h=real(h,m->texture.knots[j]);
         }
+        const VsNormalMap *map=&m->normal_map;
+        if (map->rgb) {
+            h=word(word(word(h,UINT64_C(0x5653504e524d)),map->width),map->height);
+            h=real(real(real(real(real(h,map->scale.x),map->scale.y),map->offset.x),map->offset.y),map->strength);
+            for (size_t j=0;j<normal_map_size(map);++j) h=real(h,map->rgb[j]);
+        }
     }
     for (uint32_t i=0;i<s->explicit_lights;++i) {
         const VsLight *l=s->lights+i;
@@ -318,7 +367,7 @@ bool vs_scene_compile(VsScene *s, VsError *error) {
     uint64_t texture_knots=0;
     for (uint32_t i=0;i<s->material_count;++i) {
         if (!material_valid(s->materials[i],s->medium_count)) return vs_fail(error,"invalid compiled material");
-        texture_knots+=texture_size(&s->materials[i].texture);
+        texture_knots+=texture_size(&s->materials[i].texture)+normal_map_size(&s->materials[i].normal_map);
     }
     if (texture_knots>VS_TEXTURE_KNOT_LIMIT) return vs_fail(error,"compiled texture budget exceeded");
     for (uint32_t i=0;i<s->medium_count;++i)

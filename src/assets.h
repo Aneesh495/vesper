@@ -11,4 +11,7 @@ bool vs_load_gltf(VsScene *s,VsPrimitive p,VsVec3 scale,VsVec3 translation,const
 bool vs_load_texture(VsScene *s,uint32_t material,const char *path,bool srgb,
                      VsVec2 scale,VsVec2 offset,VsError *error);
 
+bool vs_load_normal_map(VsScene *s,uint32_t material,const char *path,
+                        VsVec2 scale,VsVec2 offset,double strength,VsError *error);
+
 #endif

@@ -2,6 +2,7 @@ vesper 1 metres
 camera panel 1.4 1.45 4.5 0 .98 0 0 1 0 35 0 4.7 0 0
 diffuse tile .86 .86 .86
 texture tile assets/inlay.ppm srgb 2 1 0 0
+normal_map tile assets/inlay-normal.ppm 2 1 0 0 .45
 obj tile assets/ceramic.obj 1 1 1 0 0 0 0 0 0 0
 diffuse shelf .56 .51 .46
 diffuse back .31 .36 .43

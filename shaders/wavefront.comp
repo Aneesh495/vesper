@@ -151,7 +151,7 @@ Connection connect_light(vec3 from,float time,float nm,uint index,vec2 u) {
     return c;
 }
 
-void direct_light(uint slot,State s,Material m,vec3 n,vec3 wo,float ni,float nt,
+void direct_light(uint slot,State s,Material m,vec3 n,vec3 ns,vec3 wo,float ni,float nt,
                   uvec4 next_stack[4],uint next,uint dim,bool volume,float g,uint primitive) {
     if (scene.counts.z==0u) return;
     uvec2 key=s.key.xy;
@@ -161,6 +161,7 @@ void direct_light(uint slot,State s,Material m,vec3 n,vec3 wo,float ni,float nt,
     if (!(c.pdf>0. && c.le>0.)) return;
     float cosine=volume?1.:dot(n,c.wi);
     vec2 b=volume?vec2(phase_at(dot(s.dir_beta.xyz,c.wi),g)):bsdf(m,s.spectral.x,n,wo,c.wi,ni,nt);
+    if (!volume && m.normal_info.x!=0u) b.x*=shading_factor(n,ns,c.wi);
     if (!(b.x>0.)) return;
     float weight=c.delta?1.:mis(c.pdf,b.y);
     float value=s.dir_beta.w*c.le*b.x*abs(cosine)*weight/c.pdf;
@@ -223,14 +224,23 @@ void shade(uint slot) {
         s.dir_beta.w*=texture_factor(m,primitives[h.id.x],h,nm);
         if (s.dir_beta.w==0.) return;
     }
+    vec3 ns=n;
+    if (!volume && m.normal_info.x!=0u) {
+        ns=shading_normal(m,primitives[h.id.x],h,n);
+        s.dir_beta.w*=shading_factor(n,ns,wo);
+        if (s.dir_beta.w==0.) return;
+    }
     uint dim=6u+12u*s.key.z;
-    if (nee) direct_light(slot,s,m,n,wo,ni,nt,next_stack,next,dim,volume,g,h.id.x);
+    if (nee) direct_light(slot,s,m,n,ns,wo,ni,nt,next_stack,next,dim,volume,g,h.id.x);
     vec3 u=vec3(sample_at(s.key.xy,dim+3),sample_at(s.key.xy,dim+4),sample_at(s.key.xy,dim+5));
     Scatter b;
     if (volume) {
         vec3 wi=phase_direction(s.dir_beta.xyz,g,u.xy);
         b=Scatter(wi,phase_at(dot(s.dir_beta.xyz,wi),g),1.,false,false);
-    } else b=scatter_at(m,nm,n,wo,ni,nt,u);
+    } else {
+        b=scatter_at(m,nm,n,wo,ni,nt,u);
+        if (m.normal_info.x!=0u) b.weight*=shading_factor(n,ns,b.wi);
+    }
     if (!(b.pdf>0. && b.weight>0.)) return;
     if (b.transmit) {
         s.key.w=next;

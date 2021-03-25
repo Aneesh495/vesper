@@ -16,7 +16,7 @@ jobs:
       - run: make test
       - run: make docs
       - run: make inverse-recovery
-      - run: make adaptive-check mesh-check texture-check
+      - run: make adaptive-check mesh-check texture-check normal-map-check
       - run: make render SIZE=40 HEIGHT=30 SPP=4 RENDER_ARGS="--bins 32 --checkpoint run/diagnostic.vfilm"
       - name: Reject a changed checkpoint scene
         run: |

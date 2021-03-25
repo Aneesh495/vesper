@@ -118,3 +118,8 @@ mitsuba-check: build
 .PHONY: showcase-full
 showcase-full: build
 	sh scripts/showcase_full.sh "$(BUILD_DIR)/vesper" "$(OUT)"
+
+.PHONY: normal-map-check
+normal-map-check: build
+	mkdir -p run
+	python3 scripts/normal_map_check.py "$(BUILD_DIR)/vesper" "$$(mktemp -u run/normal-map-check.XXXXXX)" $(NORMAL_CHECK_ARGS)

@@ -74,7 +74,7 @@ def source_and_manifest(bundle, build, require_full):
     commands = {row["name"]: row for row in records(bundle / "COMMANDS.jsonl")}
     require(all(row["exit"] == 0 and row["seconds"] > 0 for row in commands.values()), "failed recorded command")
     require({"ctest", "geometry", "numerical", "temporal", "benchmark", "inverse",
-             "recovery", "gpu-recovery", "adaptive-cpu", "adaptive-vulkan", "trace", "showcases", "workbench", "gpu-workbench", "grid-contract", "mesh-import", "texture-filter"}.issubset(commands), "required command missing")
+             "recovery", "gpu-recovery", "adaptive-cpu", "adaptive-vulkan", "trace", "showcases", "workbench", "gpu-workbench", "grid-contract", "mesh-import", "texture-filter", "normal-maps"}.issubset(commands), "required command missing")
     return commands
 
 
@@ -312,6 +312,29 @@ def texture_filter(bundle):
                         f"{backend} texture filtering mismatch for {name}")
 
 
+def normal_maps(bundle):
+    root = bundle / "normal-maps"
+    report = load(bundle / "normal-maps.stdout")
+    cosine = math.cos(math.pi/6)
+    analytic = cosine * (1-math.sin(math.pi/12))
+    require(nearly(report["sampled_expected"], analytic, abs_=1e-5), "normal lobe quadrature mismatch")
+    for backend in ("cpu", "vulkan"):
+        def measurement(name, count):
+            shape, channels, _ = exr(root / f"{backend}-{name}.exr", ("Y", "Samples"))
+            require(shape == (1,1) and channels["Samples"] == [count] and channels["Y"][0] > 0,
+                    "normal-map work or radiance mismatch")
+            return channels["Y"][0]
+
+        baseline = measurement("flat", 128)
+        for name, expected in {"neutral": 1, "away": cosine*(cosine-.25), "mirrored": cosine}.items():
+            require(nearly(measurement(name,128)/baseline, expected, abs_=2e-6), f"normal-map factor mismatch: {name}")
+        require(nearly(measurement("toward",128)/measurement("flat-toward",128), cosine, abs_=2e-6),
+                "normal-map forward factor mismatch")
+        observed = measurement("sampled-tilt",131072)/measurement("sampled-flat",131072)
+        require(nearly(observed, analytic, abs_=.006) and nearly(observed, report["observed"][backend]["sampled"]),
+                "sampled normal lobe mismatch")
+
+
 def adaptive(bundle, backend):
     name = "adaptive-" + backend
     root = bundle / name
@@ -397,6 +420,7 @@ def work(bundle):
                 nearly(useful / row["seconds"], row["segments_per_s"], rel=1e-7), "benchmark workload or rate mismatch")
     mesh_import(bundle)
     texture_filter(bundle)
+    normal_maps(bundle)
     adaptive(bundle, "cpu")
     adaptive(bundle, "vulkan")
     recovery(bundle, "recovery", "cpu", 192*128*96)

@@ -20,6 +20,8 @@ typedef struct {
     U4 info;
     F4 uv_transform;
     U4 texture_info;
+    F4 normal_transform;
+    U4 normal_info;
 } GMaterial;
 typedef struct { F4 vector,power[2],pulse; U4 info; } GLight;
 typedef struct { F4 eye,right,up,forward,shutter; U4 counts,media; } GConfig;
@@ -30,7 +32,7 @@ typedef struct { F4 absorption[2],scattering[2],lo,hi,optics; U4 grid,kind; } GM
 typedef struct { uint32_t pixel,sample; } Job;
 typedef struct { uint32_t stage,parity,count,seed,width,height,depth,flags,iteration; } Push;
 
-_Static_assert(sizeof(GNode)==48 && sizeof(GPrimitive)==80 && sizeof(GMaterial)==208 &&
+_Static_assert(sizeof(GNode)==48 && sizeof(GPrimitive)==80 && sizeof(GMaterial)==240 &&
                sizeof(GLight)==80 && sizeof(GConfig)==112 && sizeof(GState)==176 &&
                sizeof(GHit)==32 && sizeof(GShadow)==160 && sizeof(GMedium)==144 && sizeof(Job)==8 && sizeof(Push)==36,
                "std430 ABI");
@@ -258,7 +260,8 @@ static bool pack(VsGpu *g,const VsScene *s,VsError *error) {
     uint64_t knots=0;
     for (uint32_t i=0;i<s->material_count;++i) {
         const VsTexture *t=&s->materials[i].texture;
-        knots+=(uint64_t)t->width*t->height*VS_SPECTRAL_KNOTS;
+        const VsNormalMap *normal=&s->materials[i].normal_map;
+        knots+=(uint64_t)t->width*t->height*VS_SPECTRAL_KNOTS+(uint64_t)normal->width*normal->height*3u;
     }
     uint32_t uv_words=knots?6u*s->primitive_count:0;
     VkDeviceSize sizes[]={sizeof(GConfig),s->bvh.node_count*sizeof(GNode),s->primitive_count*sizeof(GPrimitive),
@@ -311,7 +314,7 @@ static bool pack(VsGpu *g,const VsScene *s,VsError *error) {
         const VsMaterial *p=s->materials+i;
         spectrum(m[i].albedo,p->albedo); spectrum(m[i].emission,p->emission);
         spectrum(m[i].eta,p->eta); spectrum(m[i].k,p->k);
-        m[i].optics=(F4){(float)p->roughness,(float)p->ior_a,(float)p->ior_b,0};
+        m[i].optics=(F4){(float)p->roughness,(float)p->ior_a,(float)p->ior_b,(float)p->normal_map.strength};
         m[i].pulse=pulse(p->pulse);
         m[i].info=(U4){p->kind,p->albedo.kind,p->emission.kind,p->medium};
         m[i].uv_transform=(F4){(float)p->uv_scale.x,(float)p->uv_scale.y,
@@ -320,6 +323,15 @@ static bool pack(VsGpu *g,const VsScene *s,VsError *error) {
         if (p->texture.knots) {
             uint32_t words=p->texture.width*p->texture.height*VS_SPECTRAL_KNOTS;
             memcpy(texture+texel_offset,p->texture.knots,words*sizeof *texture);
+            texel_offset+=words;
+        }
+        const VsNormalMap *normal=&p->normal_map;
+        m[i].normal_transform=(F4){(float)normal->scale.x,(float)normal->scale.y,
+                                   (float)normal->offset.x,(float)normal->offset.y};
+        m[i].normal_info=(U4){normal->width,normal->height,texel_offset,0};
+        if (normal->rgb) {
+            uint32_t words=normal->width*normal->height*3u;
+            memcpy(texture+texel_offset,normal->rgb,words*sizeof *texture);
             texel_offset+=words;
         }
     }

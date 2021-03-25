@@ -182,6 +182,15 @@ static bool texture(Parser *p) {
                                               (VsVec2){a[2],a[3]},&p->detail);
 }
 
+static bool normal_map(Parser *p) {
+    char path[4096];
+    double a[5];
+    if (!numbers(p,3,5,a) || !vs_asset_path(path,p->file,p->token[2],&p->detail)) return false;
+    uint32_t id=lookup(p,p->token[1],false);
+    return id!=UINT32_MAX && vs_load_normal_map(p->scene,id,path,(VsVec2){a[0],a[1]},
+                                                (VsVec2){a[2],a[3]},a[4],&p->detail);
+}
+
 static bool command(Parser *p) {
     const char *op=p->token[0];
     if (!strcmp(op,"camera")) return camera(p);
@@ -210,6 +219,7 @@ static bool command(Parser *p) {
     if (!strcmp(op,"medium")) return fog(p);
     if (!strcmp(op,"grid")) return grid(p);
     if (!strcmp(op,"texture")) return texture(p);
+    if (!strcmp(op,"normal_map")) return normal_map(p);
     if (!strcmp(op,"obj") || !strcmp(op,"gltf")) return mesh(p);
     if (!strcmp(op,"world")) {
         if (p->count!=2) return vs_fail(&p->detail,"expected medium name");

@@ -30,6 +30,6 @@ The default render writes raw OpenEXR and a display PPM under run. Use the CPU-o
 - Group-index propagation time, pulse convolution and raw gated energy. [Formats and recovery](docs/ARTIFACTS.md)
 - Bounded calibrated reflectance, emitter and extinction fits. [Inverse experiments](docs/INVERSE.md)
 - Twelve authored studies, including nested glass, heterogeneous fog and 144 lights. [Gallery](scenes/README.md)
-- Numerical rules, supported features and open acceptance work. [Experiment plan](docs/EXPERIMENT_PLAN.md), [Build status](docs/BUILD_STATUS.md)
+- Numerical rules, supported features and open acceptance work. [Experiment plan](docs/EXPERIMENT_PLAN.md), [Matched reference](docs/EXTERNAL_REFERENCE.md), [Build status](docs/BUILD_STATUS.md)
 
 See [reproduction](docs/REPRODUCE.md), the [scene format](docs/SCENE_FORMAT.md), [workbench controls](docs/WORKBENCH.md), [C API example](examples/create_scene.c), and [dependency policy](docs/DEPENDENCIES.md).
