@@ -117,7 +117,7 @@ mitsuba-check: build
 
 .PHONY: showcase-full
 showcase-full: build
-	sh scripts/showcase_full.sh "$(BUILD_DIR)/vesper" "$(OUT)"
+	sh scripts/showcase_full.sh "$(BUILD_DIR)/vesper" "$(OUT)" "$(FULL_SCENE)"
 
 .PHONY: normal-map-check
 normal-map-check: build
