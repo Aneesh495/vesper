@@ -115,12 +115,29 @@ void intersect_path(uint slot) {
 
 struct Connection { vec3 wi,endpoint; float dist,le,pdf; bool delta; vec2 pulse; };
 
+float environment_radiance(Light light,float base,vec3 direction) {
+    return light.pulse.z>0. && dot(direction,normalize(light.vector.xyz))>=light.vector.w?base+light.pulse.z:base;
+}
+
+float environment_integral(Light light,float base) {
+    return 4.*PI*base+2.*PI*(1.-light.vector.w)*light.pulse.z;
+}
+
 Connection connect_light(vec3 from,float time,float nm,uint index,vec2 u) {
     Light l=lights[index];
     Connection c=Connection(vec3(0),vec3(0),FAR,spectrum(l.power,l.info.y,nm),1./float(scene.counts.z),false,l.pulse.xy);
     if (l.info.x==3u) {
-        c.wi=direction_at(vec3(0,0,1),2.*u.x-1.,2.*PI*u.y);
-        c.pdf/=4.*PI;
+        if (l.pulse.z==0.) {
+            c.wi=direction_at(vec3(0,0,1),2.*u.x-1.,2.*PI*u.y);
+            c.pdf/=4.*PI;
+            return c;
+        }
+        float integral=environment_integral(l,c.le);
+        float cap=2.*PI*(1.-l.vector.w)*l.pulse.z/integral;
+        c.wi=u.x<cap?direction_at(normalize(l.vector.xyz),1.-(1.-l.vector.w)*u.x/cap,2.*PI*u.y):
+            direction_at(vec3(0,0,1),2.*(u.x-cap)/(1.-cap)-1.,2.*PI*u.y);
+        c.le=environment_radiance(l,c.le,c.wi);
+        c.pdf*=c.le/integral;
         return c;
     }
     if (l.info.x==1u) { c.wi=normalize(l.vector.xyz); c.delta=true; return c; }
@@ -188,8 +205,11 @@ void shade(uint slot) {
     if (!volume && h.id.x==NONE) {
         if (scene.counts.w!=NONE) {
             Light l=lights[scene.counts.w];
-            float w=nee && s.spectral.w==0.?mis(s.previous_pdf.w,1./(4.*PI*float(scene.counts.z))):1.;
-            contribution(slot,0,s.dir_beta.w*w*spectrum(l.power,l.info.y,nm),-1.,l.pulse.xy);
+            float base=spectrum(l.power,l.info.y,nm),le=environment_radiance(l,base,s.dir_beta.xyz);
+            float p=l.pulse.z>0.?le/(environment_integral(l,base)*float(scene.counts.z)):
+                1./(4.*PI*float(scene.counts.z));
+            float w=nee && s.spectral.w==0.?mis(s.previous_pdf.w,p):1.;
+            contribution(slot,0,s.dir_beta.w*w*le,-1.,l.pulse.xy);
         }
         return;
     }

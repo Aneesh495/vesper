@@ -338,9 +338,10 @@ static bool pack(VsGpu *g,const VsScene *s,VsError *error) {
     GLight *l=g->buffers[LIGHTS].data;
     for (uint32_t i=0;i<s->light_count;++i) {
         const VsLight *p=s->lights+i;
-        l[i].vector=vector(p->vector,0);
+        l[i].vector=vector(p->vector,p->cone_cos);
         spectrum(l[i].power,p->power);
         l[i].pulse=pulse(p->pulse);
+        l[i].pulse.z=(float)p->cone_power;
         l[i].info=(U4){p->kind,p->power.kind,p->kind==VS_AREA?inverse[p->primitive]:0,0};
     }
     free(inverse);

@@ -140,6 +140,15 @@ static bool light(Parser *p, VsLightKind kind, bool line) {
     return vs_scene_add_light(p->scene,l,&p->detail);
 }
 
+static bool environment_cap(Parser *p) {
+    double a[6];
+    if (!numbers(p,1,6,a)) return false;
+    if (!(a[1]>0 && a[5]>=.5 && a[5]<=179)) return vs_fail(&p->detail,"invalid environment cap power or half angle");
+    VsLight l={.kind=VS_ENVIRONMENT,.power=vs_flat(a[0]),.vector=triple(a+2),
+        .cone_power=a[1],.cone_cos=cos(a[5]*VS_PI/180)};
+    return vs_scene_add_light(p->scene,l,&p->detail);
+}
+
 static bool grid(Parser *p) {
     VsMedium m={0};
     double a[13];
@@ -216,6 +225,7 @@ static bool command(Parser *p) {
     if (!strcmp(op,"point_line")) return light(p,VS_POINT,true);
     if (!strcmp(op,"distant")) return light(p,VS_DISTANT,false);
     if (!strcmp(op,"environment")) return light(p,VS_ENVIRONMENT,false);
+    if (!strcmp(op,"environment_cap")) return environment_cap(p);
     if (!strcmp(op,"medium")) return fog(p);
     if (!strcmp(op,"grid")) return grid(p);
     if (!strcmp(op,"texture")) return texture(p);

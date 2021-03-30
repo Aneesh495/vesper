@@ -188,11 +188,17 @@ bool vs_scene_set_normal_map(VsScene *s,uint32_t id,const VsNormalMap *map,VsErr
     return true;
 }
 
+static bool light_valid(VsLight light) {
+    if ((light.kind!=VS_POINT && light.kind!=VS_DISTANT && light.kind!=VS_ENVIRONMENT) ||
+        !world_vector(light.vector) || !vs_spectrum_valid(light.power,1e9) || !pulse_valid(light.pulse) ||
+        (light.kind==VS_DISTANT && vs_length(light.vector)<1e-8)) return false;
+    if (light.cone_power==0) return light.cone_cos==0;
+    return light.kind==VS_ENVIRONMENT && light.cone_power>0 && light.cone_power<=1e9 &&
+        light.cone_cos>=-.9999 && light.cone_cos<=.99999 && vs_length(light.vector)>=1e-8;
+}
+
 bool vs_scene_add_light(VsScene *s, VsLight l, VsError *error) {
-    if ((l.kind!=VS_POINT && l.kind!=VS_DISTANT && l.kind!=VS_ENVIRONMENT) ||
-        !world_vector(l.vector) || !vs_spectrum_valid(l.power,1e9) || !pulse_valid(l.pulse) ||
-        (l.kind==VS_DISTANT && vs_length(l.vector)<1e-8))
-        return vs_fail(error,"invalid light");
+    if (!light_valid(l)) return vs_fail(error,"invalid light");
     VsLight *next=reserve(s->lights,s->explicit_lights,&s->light_cap,VS_MAX_LIGHTS,sizeof l);
     if (!next) return vs_fail(error,"light allocation or count limit");
     s->lights=next;
@@ -334,6 +340,7 @@ static uint64_t scene_identity(const VsScene *s) {
         const VsLight *l=s->lights+i;
         h=curve(vec(word(h,l->kind),l->vector),l->power);
         h=real(real(h,l->pulse.start),l->pulse.width);
+        if (l->cone_power>0) h=real(real(word(h,UINT64_C(0x565350434150)),l->cone_cos),l->cone_power);
     }
     for (uint32_t i=0;i<s->medium_count;++i) {
         const VsMedium *m=s->media+i;
@@ -376,6 +383,10 @@ bool vs_scene_compile(VsScene *s, VsError *error) {
     if (s->primitive_count && !area) return vs_fail(error,"light lookup allocation failed");
     s->environment=UINT32_MAX;
     for (uint32_t i=0;i<s->explicit_lights;++i) {
+        if (!light_valid(s->lights[i])) {
+            free(area);
+            return vs_fail(error,"invalid compiled light");
+        }
         if (s->lights[i].kind!=VS_ENVIRONMENT) continue;
         if (s->environment!=UINT32_MAX) {
             free(area);

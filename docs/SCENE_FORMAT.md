@@ -20,6 +20,7 @@ The first directive is **vesper 1 metres**. Whitespace separates tokens and a ha
 | point_line | position XYZ, peak spectral intensity density, center and sigma in nm, pulse start and width |
 | distant | direction towards source XYZ, spectral irradiance density at normal incidence |
 | environment | constant spectral radiance density |
+| environment_cap | base density, added cap density, direction XYZ, cap half angle in degrees from 0.5 to 179 |
 | medium | name, absorption and scattering in inverse metres, Henyey-Greenstein g, extinction majorant |
 | world | medium name |
 | response | box instrument-response width |

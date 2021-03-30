@@ -48,6 +48,8 @@ typedef struct {
     VsSpectrum power;
     VsPulse pulse;
     uint32_t primitive;
+    /* A directional environment cap adds flat spectral density to the base. */
+    double cone_cos,cone_power;
 } VsLight;
 
 typedef struct {

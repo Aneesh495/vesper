@@ -74,7 +74,7 @@ def source_and_manifest(bundle, build, require_full):
     commands = {row["name"]: row for row in records(bundle / "COMMANDS.jsonl")}
     require(all(row["exit"] == 0 and row["seconds"] > 0 for row in commands.values()), "failed recorded command")
     require({"ctest", "geometry", "numerical", "temporal", "benchmark", "inverse",
-             "recovery", "gpu-recovery", "adaptive-cpu", "adaptive-vulkan", "trace", "showcases", "workbench", "gpu-workbench", "grid-contract", "mesh-import", "texture-filter", "normal-maps"}.issubset(commands), "required command missing")
+             "recovery", "gpu-recovery", "adaptive-cpu", "adaptive-vulkan", "trace", "showcases", "workbench", "gpu-workbench", "grid-contract", "mesh-import", "texture-filter", "normal-maps", "environment"}.issubset(commands), "required command missing")
     return commands
 
 
@@ -335,6 +335,29 @@ def normal_maps(bundle):
                 "sampled normal lobe mismatch")
 
 
+def environment(bundle):
+    rows = load(bundle / "environment.stdout")
+    fixtures = {"sky": (.1, 3, 26), "pure-cap": (0, 9, 17)}
+    expected_keys = {(c,b,m,s,p) for c in fixtures for b in ("cpu","vulkan") for m in ("mis","bsdf")
+                     for s in SEEDS for p in (131072,1048576)}
+    require(len(rows) == len(expected_keys) and
+            {(r["case"],r["backend"],r["mode"],r["seed"],r["spp"]) for r in rows} == expected_keys,
+            "environment integral workload mismatch")
+    with (ROOT / "data/CIE_xyz_1931_2deg.csv").open() as f:
+        ybar = [float(row[2]) for row in csv.reader(f)]
+    gain = math.fsum((a+b)/2 for a,b in zip(ybar,ybar[1:]))
+    for row in rows:
+        case, backend, mode, seed, spp = (row[k] for k in ("case","backend","mode","seed","spp"))
+        base, peak, angle = fixtures[case]
+        expected = .6*(base+peak*(1-math.cos(math.radians(angle))**2))
+        shape, image, _ = exr(bundle / "environment" / f"{case}-{backend}-{mode}-{seed}-{spp}.exr", ("Samples","Y"))
+        observed = image["Y"][0]/gain
+        require(shape == (1,1) and image["Samples"] == [spp] and nearly(row["observed"],observed) and
+                nearly(row["expected"],expected), "environment raw integral mismatch")
+        if spp == 1048576:
+            require(abs(observed-expected)<=.012*expected, "environment importance sampling integral mismatch")
+
+
 def adaptive(bundle, backend):
     name = "adaptive-" + backend
     root = bundle / name
@@ -421,6 +444,7 @@ def work(bundle):
     mesh_import(bundle)
     texture_filter(bundle)
     normal_maps(bundle)
+    environment(bundle)
     adaptive(bundle, "cpu")
     adaptive(bundle, "vulkan")
     recovery(bundle, "recovery", "cpu", 192*128*96)

@@ -203,10 +203,14 @@ static bool keypress(Workbench *w,SDL_Keycode key) {
             if (w->selection>=w->scene.material_count) return true;
             change_power(&w->scene.materials[w->selection].albedo,key==SDLK_1?.83:1.2,1);
             return reopen(w);
-        case SDLK_3: case SDLK_4:
+        case SDLK_3: case SDLK_4: {
             if (!w->scene.explicit_lights) return true;
-            change_power(&w->scene.lights[w->light].power,key==SDLK_3?.83:1.2,1e9);
+            VsLight *light=w->scene.lights+w->light;
+            double scale=key==SDLK_3?.83:1.2;
+            change_power(&light->power,scale,1e9);
+            light->cone_power=fmin(1e9,light->cone_power*scale);
             return reopen(w);
+        }
         case SDLK_LEFT: case SDLK_RIGHT: case SDLK_w: case SDLK_a: case SDLK_s: case SDLK_d:
         case SDLK_q: case SDLK_e: return camera_key(w,key);
         default: return true;

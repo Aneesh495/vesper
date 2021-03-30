@@ -82,6 +82,8 @@ class Campaign:
                                      self.output / "texture-filter", "--gpu"], validate=True)
         self.run("normal-maps", [sys.executable, "scripts/normal_map_check.py", self.build / "vesper",
                                    self.output / "normal-maps", "--gpu"], validate=True)
+        self.run("environment", [sys.executable, "scripts/environment_check.py", self.build / "vesper",
+                                  self.output / "environment", "--gpu"], validate=True)
         self.run("grid-contract", [self.build / "vesper", "inspect", "scenes/veil.vs"])
         self.run("numerical", [self.build / "vesper-numerical-check"])
         self.run("temporal", [self.build / "vesper-temporal-check"])

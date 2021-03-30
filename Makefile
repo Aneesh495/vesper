@@ -123,3 +123,8 @@ showcase-full: build
 normal-map-check: build
 	mkdir -p run
 	python3 scripts/normal_map_check.py "$(BUILD_DIR)/vesper" "$$(mktemp -u run/normal-map-check.XXXXXX)" $(NORMAL_CHECK_ARGS)
+
+.PHONY: environment-check
+environment-check: build
+	mkdir -p run
+	python3 scripts/environment_check.py "$(BUILD_DIR)/vesper" "$$(mktemp -u run/environment-check.XXXXXX)" $(ENVIRONMENT_CHECK_ARGS)

@@ -24,7 +24,7 @@ The proposal samples the full projected normal distribution. Invalid facets and 
 
 ## 5. Multiple importance sampling
 
-The direct-light estimator draws one light uniformly. A sampled emitter point has density 1 over area. Multiply by squared distance divided by the emitter cosine to compare in solid angle. The environment is constant in direction, so uniform sphere sampling is its radiance-matched proposal. Point and distant sources are discrete choices with unit MIS weight.
+The direct-light estimator draws one light uniformly. A sampled emitter point has density 1 over area. Multiply by squared distance divided by the emitter cosine to compare in solid angle. The constant environment uses a uniform sphere proposal. The optional directional environment adds a uniform bright cap to the base. The proposal selects the cap or the entire sphere in proportion to each component's radiance times solid angle. Its combined PDF is the directional radiance divided by the total sphere integral, including both components inside the cap. The escape and light-sampling strategies evaluate that same PDF in solid angle. Point and distant sources are discrete choices with unit MIS weight.
 
 The power heuristic compares densities only for strategies with a continuous density in the same measure. Emissive hits and environment escapes use the complementary weight when the previous event had a continuous PDF. Null boundaries preserve that previous event. The shadow ray points from its numerically offset origin to the sampled finite endpoint, while the transport evaluation uses the physical vertex-to-light direction.
 

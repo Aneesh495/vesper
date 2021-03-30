@@ -67,14 +67,35 @@ static double area_pdf(const VsPrimitive *p,VsVec3 wi,VsVec3 n,double distance,u
     return cosine>0?distance*distance/(cosine*vs_area(p)*lights):0;
 }
 
+static double environment_radiance(const VsLight *light,double base,VsVec3 direction) {
+    if (light->cone_power>0 && vs_dot(direction,vs_unit(light->vector))>=light->cone_cos)
+        return base+light->cone_power;
+    return base;
+}
+
+static double environment_integral(const VsLight *light,double base) {
+    return 4*VS_PI*base+2*VS_PI*(1-light->cone_cos)*light->cone_power;
+}
+
 static Connection light_sample(const VsScene *s,VsVec3 from,double time,double nm,
                                uint32_t index,double u,double v) {
     const VsLight *l=s->lights+index;
     double le=vs_spectrum(l->power,nm), selection=1.0/s->light_count;
     Connection c={.radiance=le,.pulse=l->pulse,.distance=INFINITY,.pdf=selection};
     if (l->kind==VS_ENVIRONMENT) {
-        c.wi=vs_direction(vs_v(0,0,1),2*u-1,2*VS_PI*v);
-        c.pdf*=1/(4*VS_PI);
+        if (l->cone_power==0) {
+            c.wi=vs_direction(vs_v(0,0,1),2*u-1,2*VS_PI*v);
+            c.pdf*=1/(4*VS_PI);
+            return c;
+        }
+        double integral=environment_integral(l,le);
+        double cap=2*VS_PI*(1-l->cone_cos)*l->cone_power/integral;
+        if (u<cap)
+            c.wi=vs_direction(vs_unit(l->vector),1-(1-l->cone_cos)*u/cap,2*VS_PI*v);
+        else
+            c.wi=vs_direction(vs_v(0,0,1),2*(u-cap)/(1-cap)-1,2*VS_PI*v);
+        c.radiance=environment_radiance(l,le,c.wi);
+        c.pdf*=c.radiance/integral;
         return c;
     }
     if (l->kind==VS_DISTANT) {
@@ -210,9 +231,11 @@ bool vs_trace_path(const VsScene *s,VsRender cfg,uint32_t pixel,uint32_t index,
         if (!surface && !collision.collision) {
             if (s->environment!=UINT32_MAX) {
                 const VsLight *l=s->lights+s->environment;
-                double p=1/(4*VS_PI*s->light_count);
+                double base=vs_spectrum(l->power,nm);
+                double le=environment_radiance(l,base,ray.direction);
+                double p=l->cone_power>0?le/(environment_integral(l,base)*s->light_count):1/(4*VS_PI*s->light_count);
                 double w=cfg.nee&&!v.previous_delta?mis(v.previous_pdf,p):1;
-                if (!contribute(out,v.beta*w*vs_spectrum(l->power,nm),v.delay,l->pulse,false,error))
+                if (!contribute(out,v.beta*w*le,v.delay,l->pulse,false,error))
                     return false;
             }
             record(trace,VS_EVENT_END,v,state.medium,INFINITY,0,0,false);
