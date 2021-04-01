@@ -113,7 +113,7 @@ static bool normal_map_valid(const VsNormalMap *map) {
 
 static bool texture_valid(const VsMaterial *m) {
     const VsTexture *t=&m->texture;
-    return (!(t->knots || m->normal_map.rgb) || m->kind==VS_DIFFUSE) &&
+    return (!(t->knots || m->normal_map.rgb || m->smooth_normals) || m->kind==VS_DIFFUSE) &&
         image_valid(t->knots,t->width,t->height,VS_SPECTRAL_KNOTS,m->uv_scale,m->uv_offset) &&
         normal_map_valid(&m->normal_map);
 }
@@ -317,6 +317,10 @@ static uint64_t scene_identity(const VsScene *s) {
             h=word(h,UINT64_C(0x565350555653));
             for (unsigned j=0;j<3;++j) h=real(real(h,p->uv[j].x),p->uv[j].y);
         }
+        if (p->has_normals) {
+            h=word(h,UINT64_C(0x565350564e4d));
+            for (unsigned j=0;j<3;++j) h=vec(h,p->normals[j]);
+        }
     }
     for (uint32_t i=0;i<s->material_count;++i) {
         const VsMaterial *m=s->materials+i;
@@ -329,6 +333,7 @@ static uint64_t scene_identity(const VsScene *s) {
             h=real(real(real(real(h,m->uv_scale.x),m->uv_scale.y),m->uv_offset.x),m->uv_offset.y);
             for (size_t j=0;j<texture_size(&m->texture);++j) h=real(h,m->texture.knots[j]);
         }
+        if (m->smooth_normals) h=word(h,UINT64_C(0x565350534d54));
         const VsNormalMap *map=&m->normal_map;
         if (map->rgb) {
             h=word(word(word(h,UINT64_C(0x5653504e524d)),map->width),map->height);

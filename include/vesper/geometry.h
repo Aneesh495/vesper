@@ -34,8 +34,9 @@ typedef struct {
     double radius;
     uint32_t material, boundary;
     VsShape shape;
-    bool has_uv;
+    bool has_uv,has_normals;
     VsVec2 uv[3];
+    VsVec3 normals[3];
 } VsPrimitive;
 
 typedef struct {

@@ -230,6 +230,14 @@ static bool command(Parser *p) {
     if (!strcmp(op,"grid")) return grid(p);
     if (!strcmp(op,"texture")) return texture(p);
     if (!strcmp(op,"normal_map")) return normal_map(p);
+    if (!strcmp(op,"smooth_normals")) {
+        if (p->count!=2) return vs_fail(&p->detail,"expected diffuse material name");
+        uint32_t id=lookup(p,p->token[1],false);
+        if (id==UINT32_MAX) return false;
+        if (p->scene->materials[id].kind!=VS_DIFFUSE) return vs_fail(&p->detail,"smooth normals require a diffuse material");
+        p->scene->materials[id].smooth_normals=true;
+        return true;
+    }
     if (!strcmp(op,"obj") || !strcmp(op,"gltf")) return mesh(p);
     if (!strcmp(op,"world")) {
         if (p->count!=2) return vs_fail(&p->detail,"expected medium name");

@@ -43,23 +43,23 @@ vec3 normal_texel(uvec4 info,ivec2 p) {
     return vec3(texels[first],texels[first+1u],texels[first+2u]);
 }
 
-vec3 shading_normal(Material m,Primitive primitive,Hit hit,vec3 n) {
-    if (m.optics.w==0.) return n;
+vec3 map_offset(Material m,Primitive primitive,Hit hit,vec3 n) {
+    if (m.normal_info.x==0u || m.optics.w==0.) return vec3(0);
     vec3 tangent,bitangent;
     if (primitive.info.x==0u) {
         vec3 outward=hit.normal_t.xyz;
         tangent=vec3(-outward.z,0.,outward.x);
-        if (length(tangent)<=1e-6) return n;
+        if (length(tangent)<=1e-6) return vec3(0);
         tangent=normalize(tangent);
         bitangent=cross(outward,tangent);
     } else {
         vec2 uv0=mesh_uv(hit.id.x,0u);
         vec2 d1=mesh_uv(hit.id.x,1u)-uv0,d2=mesh_uv(hit.id.x,2u)-uv0;
         float det=d1.x*d2.y-d2.x*d1.y;
-        if (abs(det)<=1e-10) return n;
+        if (abs(det)<=1e-10) return vec3(0);
         vec3 e1=primitive.b.xyz-primitive.a.xyz,e2=primitive.c.xyz-primitive.a.xyz;
         vec3 raw=sign(det)*(e1*d2.y-e2*d1.y);
-        if (length(raw)<=1e-20) return n;
+        if (length(raw)<=1e-20) return vec3(0);
         tangent=normalize(raw);
         bitangent=cross(n,tangent);
         if (dot(bitangent,sign(det)*(e2*d1.x-e1*d2.x))<0.) bitangent=-bitangent;
@@ -74,9 +74,29 @@ vec3 shading_normal(Material m,Primitive primitive,Hit hit,vec3 n) {
     vec3 b=mix(normal_texel(m.normal_info,p+ivec2(0,1)),normal_texel(m.normal_info,p+ivec2(1,1)),f.x);
     vec3 encoded=2.*mix(a,b,f.y)-1.;
     vec2 slope=encoded.xy*(m.optics.w/max(.25,encoded.z));
-    float span=length(slope);
-    if (span>.5773502691896258) slope*=.5773502691896258/span;
-    return normalize(n+tangent*slope.x+bitangent*slope.y);
+    return tangent*slope.x+bitangent*slope.y;
+}
+
+
+vec3 vertex_normal(uint primitive,uint vertex) {
+    uint i=scene.media.z+9u*primitive+3u*vertex;
+    return vec3(texels[i],texels[i+1u],texels[i+2u]);
+}
+
+vec3 shading_normal(Material m,Primitive primitive,Hit hit,vec3 n) {
+    vec3 offset=map_offset(m,primitive,hit,n);
+    if (m.normal_info.w!=0u && primitive.info.x==1u) {
+        vec2 uv=uintBitsToFloat(hit.id.zw);
+        vec3 imported=(1.-uv.x-uv.y)*vertex_normal(hit.id.x,0u)+
+            uv.x*vertex_normal(hit.id.x,1u)+uv.y*vertex_normal(hit.id.x,2u);
+        if (dot(n,hit.normal_t.xyz)<0.) imported=-imported;
+        float z=dot(imported,n);
+        if (z>1e-6) offset+=imported/z-n;
+    }
+    float span=length(offset);
+    if (span==0.) return n;
+    if (span>.5773502691896258) offset*=.5773502691896258/span;
+    return normalize(n+offset);
 }
 
 float shading_factor(vec3 geometric,vec3 shading,vec3 direction) {

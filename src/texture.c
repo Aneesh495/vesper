@@ -185,11 +185,9 @@ static bool tangent_frame(const VsPrimitive *p,const VsHit *hit,VsVec3 n,VsVec3 
     return true;
 }
 
-VsVec3 vs_shading_normal(const VsMaterial *m,const VsPrimitive *p,const VsHit *hit,VsVec3 n) {
-    const VsNormalMap *map=&m->normal_map;
-    if (!map->rgb || map->strength==0) return n;
+static VsVec3 map_offset(const VsNormalMap *map,const VsPrimitive *p,const VsHit *hit,VsVec3 n) {
     VsVec3 tangent,bitangent;
-    if (!tangent_frame(p,hit,n,&tangent,&bitangent)) return n;
+    if (!map->rgb || map->strength==0 || !tangent_frame(p,hit,n,&tangent,&bitangent)) return vs_v(0,0,0);
     if (map->scale.x<0) tangent=vs_mul(tangent,-1);
     if (map->scale.y<0) bitangent=vs_mul(bitangent,-1);
     VsVec2 pos=texel_position(surface_uv(p,hit),map->scale,map->offset,map->width,map->height);
@@ -199,10 +197,22 @@ VsVec3 vs_shading_normal(const VsMaterial *m,const VsPrimitive *p,const VsHit *h
     VsVec3 b=lerp(normal_texel(map,i,j+1),normal_texel(map,i+1,j+1),dx);
     VsVec3 encoded=lerp(a,b,dy);
     double slope=map->strength/fmax(.25,2*encoded.z-1);
-    double x=(2*encoded.x-1)*slope,y=(2*encoded.y-1)*slope;
-    double length=hypot(x,y),bound=.5773502691896258;
-    double scale=length>bound?bound/length:1;
-    VsVec3 offset=vs_add(vs_mul(tangent,x*scale),vs_mul(bitangent,y*scale));
+    return vs_add(vs_mul(tangent,(2*encoded.x-1)*slope),vs_mul(bitangent,(2*encoded.y-1)*slope));
+}
+
+VsVec3 vs_shading_normal(const VsMaterial *m,const VsPrimitive *p,const VsHit *hit,VsVec3 n) {
+    VsVec3 offset=map_offset(&m->normal_map,p,hit,n);
+    if (m->smooth_normals && p->has_normals) {
+        double u=hit->u,v=hit->v;
+        VsVec3 imported=vs_add(vs_mul(p->normals[0],1-u-v),
+            vs_add(vs_mul(p->normals[1],u),vs_mul(p->normals[2],v)));
+        if (!hit->front) imported=vs_mul(imported,-1);
+        double z=vs_dot(imported,n);
+        if (z>1e-6) offset=vs_add(offset,vs_sub(vs_mul(imported,1/z),n));
+    }
+    double length=vs_length(offset),bound=.5773502691896258;
+    if (length==0) return n;
+    if (length>bound) offset=vs_mul(offset,bound/length);
     return vs_unit(vs_add(n,offset));
 }
 

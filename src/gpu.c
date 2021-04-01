@@ -263,11 +263,17 @@ static bool pack(VsGpu *g,const VsScene *s,VsError *error) {
         const VsNormalMap *normal=&s->materials[i].normal_map;
         knots+=(uint64_t)t->width*t->height*VS_SPECTRAL_KNOTS+(uint64_t)normal->width*normal->height*3u;
     }
-    uint32_t uv_words=knots?6u*s->primitive_count:0;
+    bool imported_normals=false;
+    for (uint32_t i=0;i<s->primitive_count && !imported_normals;++i) {
+        const VsPrimitive *p=s->primitives+i;
+        imported_normals=p->has_normals && s->materials[p->material].smooth_normals;
+    }
+    uint32_t uv_words=(knots || imported_normals)?6u*s->primitive_count:0;
+    uint32_t normal_words=imported_normals?9u*s->primitive_count:0;
     VkDeviceSize sizes[]={sizeof(GConfig),s->bvh.node_count*sizeof(GNode),s->primitive_count*sizeof(GPrimitive),
         s->material_count*sizeof(GMaterial),s->light_count*sizeof(GLight),BATCH*sizeof(Job),
         BATCH*sizeof(GState),BATCH*sizeof(GHit),BATCH*sizeof(GShadow),
-        BATCH*(2u*g->cfg.max_depth+1u)*sizeof(F4),(COUNTERS+3u*BATCH)*sizeof(uint32_t),s->medium_count*sizeof(GMedium),grids*sizeof(float),(knots+uv_words)*sizeof(float)};
+        BATCH*(2u*g->cfg.max_depth+1u)*sizeof(F4),(COUNTERS+3u*BATCH)*sizeof(uint32_t),s->medium_count*sizeof(GMedium),grids*sizeof(float),(knots+uv_words+normal_words)*sizeof(float)};
     for (unsigned i=0;i<BUFFERS;++i) if (!make_buffer(g,g->buffers+i,sizes[i],error)) return false;
     const VsCamera *c=s->cameras+s->camera;
     VsVec3 forward=vs_unit(vs_sub(c->target,c->position));
@@ -275,7 +281,7 @@ static bool pack(VsGpu *g,const VsScene *s,VsError *error) {
     GConfig *conf=g->buffers[CONFIG].data;
     *conf=(GConfig){vector(c->position,c->aperture),vector(right,c->focus),vector(up,0),
         vector(forward,tan(c->vfov*VS_PI/360)),{(float)c->shutter_open,(float)c->shutter_close,0,0},
-        {s->bvh.node_count,s->primitive_count,s->light_count,s->environment},{s->world_medium,knots!=0,0,0}};
+        {s->bvh.node_count,s->primitive_count,s->light_count,s->environment},{s->world_medium,uv_words!=0,imported_normals?uv_words:0,0}};
     GNode *nodes=g->buffers[NODES].data;
     for (uint32_t i=0;i<s->bvh.node_count;++i) {
         VsNode n=s->bvh.nodes[i];
@@ -299,7 +305,7 @@ static bool pack(VsGpu *g,const VsScene *s,VsError *error) {
         VsPrimitive p=s->primitives[j];
         primitive[i]=(GPrimitive){vector(p.a,p.radius),vector(p.b,0),vector(p.c,0),vector(p.velocity,0),
             {p.shape,p.material,p.boundary,j}};
-        if (knots) {
+        if (uv_words) {
             static const VsVec2 canonical[]={{0,0},{1,0},{0,1}};
             const VsVec2 *uv=p.has_uv?p.uv:canonical;
             for (unsigned k=0;k<3;++k) {
@@ -307,9 +313,18 @@ static bool pack(VsGpu *g,const VsScene *s,VsError *error) {
                 texture[6*i+2*k+1]=(float)uv[k].y;
             }
         }
+        if (imported_normals) {
+            for (unsigned k=0;k<3;++k) {
+                VsVec3 n=p.has_normals?p.normals[k]:vs_v(0,0,0);
+                uint32_t at=uv_words+9*i+3*k;
+                texture[at]=(float)n.x;
+                texture[at+1]=(float)n.y;
+                texture[at+2]=(float)n.z;
+            }
+        }
     }
     GMaterial *m=g->buffers[MATERIALS].data;
-    uint32_t texel_offset=uv_words;
+    uint32_t texel_offset=uv_words+normal_words;
     for (uint32_t i=0;i<s->material_count;++i) {
         const VsMaterial *p=s->materials+i;
         spectrum(m[i].albedo,p->albedo); spectrum(m[i].emission,p->emission);
@@ -328,7 +343,7 @@ static bool pack(VsGpu *g,const VsScene *s,VsError *error) {
         const VsNormalMap *normal=&p->normal_map;
         m[i].normal_transform=(F4){(float)normal->scale.x,(float)normal->scale.y,
                                    (float)normal->offset.x,(float)normal->offset.y};
-        m[i].normal_info=(U4){normal->width,normal->height,texel_offset,0};
+        m[i].normal_info=(U4){normal->width,normal->height,texel_offset,p->smooth_normals && imported_normals};
         if (normal->rgb) {
             uint32_t words=normal->width*normal->height*3u;
             memcpy(texture+texel_offset,normal->rgb,words*sizeof *texture);

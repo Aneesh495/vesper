@@ -89,7 +89,7 @@ static bool obj_value(ObjList *list,char **cursor,unsigned dimensions) {
     return true;
 }
 
-typedef struct { size_t vertex,uv; bool has_uv; } ObjCorner;
+typedef struct { size_t vertex,uv,normal; bool has_uv,has_normal; } ObjCorner;
 
 static bool obj_corner(char *word,const ObjList *vertices,const ObjList *uvs,const ObjList *normals,
                        ObjCorner *corner) {
@@ -104,8 +104,8 @@ static bool obj_corner(char *word,const ObjList *vertices,const ObjList *uvs,con
         if (!vertex_index(uv,uvs->count,&corner->uv)) return false;
         corner->has_uv=true;
     } else if (!normal) return false;
-    size_t id;
-    return !normal || vertex_index(normal,normals->count,&id);
+    corner->has_normal=normal!=NULL;
+    return !normal || vertex_index(normal,normals->count,&corner->normal);
 }
 
 bool vs_load_obj(VsScene *s,VsPrimitive p,VsVec3 scale,VsVec3 translation,const char *path,VsError *error) {
@@ -136,15 +136,21 @@ bool vs_load_obj(VsScene *s,VsPrimitive p,VsVec3 scale,VsVec3 translation,const 
             for (unsigned i=0;i<3;++i)
                 if (!obj_corner(token(&cursor),&vertices,&uvs,&normals,corner+i)) { ok=false; break; }
             if (!ok || *token(&cursor) || corner[0].has_uv!=corner[1].has_uv ||
-                corner[0].has_uv!=corner[2].has_uv) { ok=false; break; }
+                corner[0].has_uv!=corner[2].has_uv || corner[0].has_normal!=corner[1].has_normal ||
+                corner[0].has_normal!=corner[2].has_normal) { ok=false; break; }
             VsVec3 v[3];
             p.has_uv=corner[0].has_uv;
+            p.has_normals=corner[0].has_normal;
             for (unsigned i=0;i<3;++i) {
                 VsVec3 point=vertices.values[corner[i].vertex];
                 v[i]=vs_add(vs_v(point.x*scale.x,point.y*scale.y,point.z*scale.z),translation);
                 if (p.has_uv) {
                     VsVec3 uv=uvs.values[corner[i].uv];
                     p.uv[i]=(VsVec2){uv.x,1-uv.y};
+                }
+                if (p.has_normals) {
+                    VsVec3 normal=normals.values[corner[i].normal];
+                    p.normals[i]=vs_unit(vs_v(normal.x/scale.x,normal.y/scale.y,normal.z/scale.z));
                 }
             }
             p.a=v[0]; p.b=v[1]; p.c=v[2];

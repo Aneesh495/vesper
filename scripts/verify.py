@@ -326,7 +326,12 @@ def normal_maps(bundle):
             return channels["Y"][0]
 
         baseline = measurement("flat", 128)
-        for name, expected in {"neutral": 1, "away": cosine*(cosine-.25), "mirrored": cosine}.items():
+        smooth = 1/math.hypot(1, .375)
+        gradient = 1/math.hypot(1, .25)
+        direct = {"neutral": 1, "away": cosine*(cosine-.25), "mirrored": cosine,
+                  "smooth-obj": smooth*smooth*(1-.375/2), "smooth-gltf": smooth*smooth*(1-.375/2),
+                  "smooth-mirror": smooth, "smooth-gradient": gradient*gradient*(1-.25/2)}
+        for name, expected in direct.items():
             require(nearly(measurement(name,128)/baseline, expected, abs_=2e-6), f"normal-map factor mismatch: {name}")
         require(nearly(measurement("toward",128)/measurement("flat-toward",128), cosine, abs_=2e-6),
                 "normal-map forward factor mismatch")

@@ -56,6 +56,11 @@ bool vs_primitive_valid(const VsPrimitive *p) {
         for (unsigned i=0;i<3;++i)
             if (!(fabs(p->uv[i].x)<=1e6 && fabs(p->uv[i].y)<=1e6)) return false;
     }
+    if (p->has_normals) {
+        if (p->shape!=VS_TRIANGLE) return false;
+        for (unsigned i=0;i<3;++i)
+            if (!(fabs(vs_dot(p->normals[i],p->normals[i])-1)<=1e-8)) return false;
+    }
     VsBounds bounds=vs_primitive_bounds(p);
     return vs_finite(bounds.lo) && vs_finite(bounds.hi);
 }

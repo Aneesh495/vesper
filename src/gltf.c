@@ -180,11 +180,14 @@ static bool mesh_primitive(Import *import,const cgltf_primitive *source,Matrix w
         return vs_fail(import->error,"invalid glTF triangle count or scene primitive limit");
 
     const double *m=world.m;
-    double det=vs_dot(vs_v(m[0],m[1],m[2]),vs_cross(vs_v(m[4],m[5],m[6]),vs_v(m[8],m[9],m[10])));
+    VsVec3 a=vs_v(m[0],m[1],m[2]),b=vs_v(m[4],m[5],m[6]),c=vs_v(m[8],m[9],m[10]);
+    VsVec3 cofactors[]={vs_cross(b,c),vs_cross(c,a),vs_cross(a,b)};
+    double det=vs_dot(a,cofactors[0]);
     if (!isfinite(det) || det==0) return vs_fail(import->error,"singular glTF instance transform");
     for (size_t i=0;i<count;i+=3) {
         VsPrimitive p=import->primitive;
         p.has_uv=uv!=NULL;
+        p.has_normals=normal!=NULL;
         VsVec3 v[3];
         for (unsigned j=0;j<3;++j) {
             size_t ordinal=i+(det<0 && j>0?3-j:j);
@@ -196,8 +199,15 @@ static bool mesh_primitive(Import *import,const cgltf_primitive *source,Matrix w
                         import->translation);
             if (uv) p.uv[j]=uv_at(uv,id);
             if (normal) {
-                double length=vs_length(vector_at(normal,id));
-                if (!(fabs(length-1)<=.005)) return vs_fail(import->error,"invalid glTF vertex normal");
+                VsVec3 source_normal=vector_at(normal,id);
+                if (!(fabs(vs_length(source_normal)-1)<=.005))
+                    return vs_fail(import->error,"invalid glTF vertex normal");
+                VsVec3 t=vs_add(vs_add(vs_mul(cofactors[0],source_normal.x),vs_mul(cofactors[1],source_normal.y)),
+                               vs_mul(cofactors[2],source_normal.z));
+                t=vs_v(t.x/import->scale.x,t.y/import->scale.y,t.z/import->scale.z);
+                double length=vs_length(t);
+                if (!(length>0 && isfinite(length))) return vs_fail(import->error,"invalid glTF normal transform");
+                p.normals[j]=vs_mul(t,(det<0?-1:1)/length);
             }
         }
         p.a=v[0]; p.b=v[1]; p.c=v[2];

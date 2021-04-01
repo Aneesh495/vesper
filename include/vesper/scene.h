@@ -39,6 +39,7 @@ typedef struct {
     VsTexture texture;
     VsVec2 uv_scale,uv_offset;
     VsNormalMap normal_map;
+    bool smooth_normals;
 } VsMaterial;
 
 typedef enum { VS_POINT, VS_DISTANT, VS_AREA, VS_ENVIRONMENT } VsLightKind;

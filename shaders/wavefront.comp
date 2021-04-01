@@ -178,7 +178,7 @@ void direct_light(uint slot,State s,Material m,vec3 n,vec3 ns,vec3 wo,float ni,f
     if (!(c.pdf>0. && c.le>0.)) return;
     float cosine=volume?1.:dot(n,c.wi);
     vec2 b=volume?vec2(phase_at(dot(s.dir_beta.xyz,c.wi),g)):bsdf(m,s.spectral.x,n,wo,c.wi,ni,nt);
-    if (!volume && m.normal_info.x!=0u) b.x*=shading_factor(n,ns,c.wi);
+    if (!volume && (m.normal_info.x!=0u || m.normal_info.w!=0u)) b.x*=shading_factor(n,ns,c.wi);
     if (!(b.x>0.)) return;
     float weight=c.delta?1.:mis(c.pdf,b.y);
     float value=s.dir_beta.w*c.le*b.x*abs(cosine)*weight/c.pdf;
@@ -245,7 +245,7 @@ void shade(uint slot) {
         if (s.dir_beta.w==0.) return;
     }
     vec3 ns=n;
-    if (!volume && m.normal_info.x!=0u) {
+    if (!volume && (m.normal_info.x!=0u || m.normal_info.w!=0u)) {
         ns=shading_normal(m,primitives[h.id.x],h,n);
         s.dir_beta.w*=shading_factor(n,ns,wo);
         if (s.dir_beta.w==0.) return;
@@ -259,7 +259,7 @@ void shade(uint slot) {
         b=Scatter(wi,phase_at(dot(s.dir_beta.xyz,wi),g),1.,false,false);
     } else {
         b=scatter_at(m,nm,n,wo,ni,nt,u);
-        if (m.normal_info.x!=0u) b.weight*=shading_factor(n,ns,b.wi);
+        if ((m.normal_info.x!=0u || m.normal_info.w!=0u)) b.weight*=shading_factor(n,ns,b.wi);
     }
     if (!(b.pdf>0. && b.weight>0.)) return;
     if (b.transmit) {

@@ -16,7 +16,7 @@ typedef struct {
     const VsMaterial *material;
     double delay,beta,eta_balance,previous_pdf,g;
     uint32_t depth,primitive,iteration;
-    bool previous_delta,volume;
+    bool previous_delta,volume,use_shading;
 } Vertex;
 
 static Interior current(const MediumStack *s) { return s->state[s->size-1]; }
@@ -185,7 +185,7 @@ static bool direct(const VsScene *s,Vertex v,VsRay ray,VsSample rng,uint32_t dim
         if (cosine<0) side=next;
         VsBsdfValue b=vs_bsdf_eval(v.material,nm,v.n,v.wo,c.wi,current(medium).phase,current(next).phase);
         f=b.f*fabs(cosine); pdf=b.pdf;
-        if (v.material->normal_map.rgb) f*=vs_shading_factor(v.n,v.shading,c.wi);
+        if (v.use_shading) f*=vs_shading_factor(v.n,v.shading,c.wi);
     }
     if (!(f>0)) return true;
     double tr,arrival;
@@ -283,7 +283,8 @@ bool vs_trace_path(const VsScene *s,VsRender cfg,uint32_t pixel,uint32_t index,
             }
             if (v.depth>=cfg.max_depth) break;
             if (v.material->texture.knots) v.beta*=vs_texture_factor(v.material,p,&hit,nm);
-            if (v.material->normal_map.rgb) {
+            v.use_shading=v.material->normal_map.rgb || (v.material->smooth_normals && p->has_normals);
+            if (v.use_shading) {
                 v.shading=vs_shading_normal(v.material,p,&hit,v.n);
                 v.beta*=vs_shading_factor(v.n,v.shading,v.wo);
             }
@@ -291,7 +292,7 @@ bool vs_trace_path(const VsScene *s,VsRender cfg,uint32_t pixel,uint32_t index,
             if (cfg.nee && !direct(s,v,ray,rng,dim,out,&media,&next,trace,error)) return false;
             scatter=vs_bsdf_sample(v.material,nm,v.n,v.wo,state.phase,current(&next).phase,
                                    vs_sample(rng,dim+3),vs_sample(rng,dim+4),vs_sample(rng,dim+5));
-            if (v.material->normal_map.rgb) scatter.weight*=vs_shading_factor(v.n,v.shading,scatter.wi);
+            if (v.use_shading) scatter.weight*=vs_shading_factor(v.n,v.shading,scatter.wi);
             if (scatter.transmit) {
                 media=next;
                 double r=current(&media).phase/state.phase;
