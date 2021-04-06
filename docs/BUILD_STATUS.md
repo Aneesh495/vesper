@@ -1,6 +1,6 @@
 # Build status
 
-Vesper has a working C17 spectral and transient renderer, a separate float64 CPU implementation, a hardware Vulkan wavefront backend, a native workbench and a calibrated synthetic inverse lab. Full acceptance remains open.
+Vesper has a working C17 spectral and transient renderer, a separate float64 CPU implementation, a hardware Vulkan wavefront backend, a native workbench and a calibrated synthetic inverse lab. Full acceptance remains open. [Implementation coverage](COVERAGE.md).
 
 | Gate | State | Scope |
 |---|---|---|
