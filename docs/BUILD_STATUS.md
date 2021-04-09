@@ -8,7 +8,7 @@ Vesper has a working C17 spectral and transient renderer, a separate float64 CPU
 | G02 | Diagnostic | A million randomized rays and adversarial edges run against the independent oracle. |
 | G03, G04 | Diagnostic | Spectral quadrature, PDF mass, reciprocity, Fresnel and CPU/GPU comparisons are covered. Broader histogram and material coverage is open. |
 | G05, G06, G07, G08 | Diagnostic | Area MIS, volume transmission, path depth and time cases are implemented. Two matched direct-light cases also pass the optional Mitsuba spectral comparison. Broader multi-seed convergence, roulette and nested-scene baselines are open. |
-| G09, G10 | Diagnostic | The Apple M2 executes validated wavefront rendering and the million-triangle benchmark. Detailed hardware captures and performance characterization are open. |
+| G09, G10 | Diagnostic | The Apple M2 executes validated wavefront rendering, the million-triangle benchmark and per-batch device timestamp capture. Broader hardware profiling and performance characterization are open. |
 | G11, G12 | Diagnostic | Native event-queue checks exercise resize, focus, pause, render region, scrubbing, export and scene invalidation on both backends. CPU and Vulkan interruption probes compare exact checkpoint bytes on the same device and build. |
 | G13 | Open | Twelve showcase scenes and six transient films are rendered in diagnostics. The six required 1920 by 1080, 1,024-spp outputs remain outstanding. |
 | G14 | Diagnostic | The separate verifier checks raw sample counts, source identity and wavelength replay. Broader semantic controls remain open. |

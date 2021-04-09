@@ -87,6 +87,9 @@ class Campaign:
         self.run("grid-contract", [self.build / "vesper", "inspect", "scenes/veil.vs"])
         self.run("numerical", [self.build / "vesper-numerical-check"])
         self.run("temporal", [self.build / "vesper-temporal-check"])
+        self.run("gpu-timing", [self.build / "vesper", "gpu-probe", "scenes/veil.vs", "--width", "64",
+                                "--height", "48", "--spp", "16", "--gpu-timing", self.output / "gpu-timing.csv"],
+                 validate=True)
         self.run("benchmark", [self.build / "vesper-benchmark", "16"])
         self.run("inverse", [sys.executable, "scripts/inverse_recovery.py", self.build / "vesper-inverse",
                              self.output / "inverse"])

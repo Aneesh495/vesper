@@ -3,6 +3,7 @@
 #include <vulkan/vulkan.h>
 
 #include <float.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -50,6 +51,9 @@ struct VsGpu {
     VkCommandPool pool;
     VkCommandBuffer cmd;
     VkFence fence;
+    VkQueryPool timer;
+    VsGpuTimingSink timing_sink;
+    void *timing_context;
     VkShaderModule shader;
     VkDescriptorSetLayout set_layout;
     VkDescriptorPool set_pool;
@@ -60,7 +64,7 @@ struct VsGpu {
     VsDevice info;
     VsRender cfg;
     uint64_t scene,allocated;
-    uint32_t validation_errors;
+    atomic_uint validation_errors;
 };
 
 static bool check(VkResult result,const char *op,VsError *error) {
@@ -173,6 +177,8 @@ static bool select_device(VsGpu *g,VsError *error) {
         vkGetPhysicalDeviceQueueFamilyProperties(devices[i],&m,q);
         for (uint32_t j=0;j<m;++j) if (q[j].queueCount && (q[j].queueFlags&VK_QUEUE_COMPUTE_BIT)) {
             family=j; g->physical=devices[i]; g->limits=p;
+            g->info.timestamp_bits=q[j].timestampValidBits;
+            g->info.timestamp_period_ns=p.limits.timestampPeriod;
             break;
         }
     }
@@ -430,6 +436,7 @@ void vs_gpu_close(VsGpu *g) {
         if (g->set_pool) vkDestroyDescriptorPool(g->device,g->set_pool,NULL);
         if (g->set_layout) vkDestroyDescriptorSetLayout(g->device,g->set_layout,NULL);
         if (g->fence) vkDestroyFence(g->device,g->fence,NULL);
+        if (g->timer) vkDestroyQueryPool(g->device,g->timer,NULL);
         if (g->pool) vkDestroyCommandPool(g->device,g->pool,NULL);
         for (unsigned i=0;i<BUFFERS;++i) {
             Buffer *b=g->buffers+i;
@@ -455,6 +462,7 @@ bool vs_gpu_open(VsGpu **out,const VsScene *s,VsRender c,VsError *error) {
     if (!g) return vs_fail(error,"Vulkan context allocation failed");
     g->scene=s->identity;
     g->cfg=c;
+    atomic_init(&g->validation_errors,0);
     if (!make_instance(g,error) || !select_device(g,error) || !pack(g,s,error) || !make_pipeline(g,error) ||
         (g->validation_errors && !vs_fail(error,"Vulkan setup emitted validation errors"))) {
         vs_gpu_close(g);
@@ -465,6 +473,20 @@ bool vs_gpu_open(VsGpu **out,const VsScene *s,VsRender c,VsError *error) {
 }
 
 const VsDevice *vs_gpu_device(const VsGpu *g) { return g?&g->info:NULL; }
+
+bool vs_gpu_enable_timing(VsGpu *g,VsGpuTimingSink sink,void *context,VsError *error) {
+    if (!g || !sink || !g->info.timestamp_bits || !(g->info.timestamp_period_ns>0))
+        return vs_fail(error,"Vulkan timestamp queries unavailable for this compute queue");
+    if (!g->timer) {
+        VkQueryPoolCreateInfo info={.sType=VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO,
+            .queryType=VK_QUERY_TYPE_TIMESTAMP,.queryCount=2};
+        if (!check(vkCreateQueryPool(g->device,&info,NULL,&g->timer),"create timestamp query pool",error))
+            return false;
+    }
+    g->timing_sink=sink;
+    g->timing_context=context;
+    return true;
+}
 
 static void barrier(VsGpu *g,VkPipelineStageFlags from,VkPipelineStageFlags to,
                     VkAccessFlags src,VkAccessFlags dst) {
@@ -491,6 +513,10 @@ static bool submit(VsGpu *g,uint32_t count,VsError *error) {
     if (!check(vkResetCommandBuffer(g->cmd,0),"reset command buffer",error) ||
         !check(vkBeginCommandBuffer(g->cmd,&begin),"begin command buffer",error))
         return false;
+    if (g->timer) {
+        vkCmdResetQueryPool(g->cmd,g->timer,0,2);
+        vkCmdWriteTimestamp(g->cmd,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,g->timer,0);
+    }
     VkBuffer queues=g->buffers[QUEUES].buffer;
     vkCmdFillBuffer(g->cmd,g->buffers[EVENTS].buffer,0,VK_WHOLE_SIZE,0);
     vkCmdFillBuffer(g->cmd,queues,0,4,count);
@@ -520,6 +546,7 @@ static bool submit(VsGpu *g,uint32_t count,VsError *error) {
     }
     barrier(g,compute|transfer,VK_PIPELINE_STAGE_HOST_BIT,
         VK_ACCESS_SHADER_WRITE_BIT|VK_ACCESS_TRANSFER_WRITE_BIT,VK_ACCESS_HOST_READ_BIT);
+    if (g->timer) vkCmdWriteTimestamp(g->cmd,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,g->timer,1);
     if (!check(vkEndCommandBuffer(g->cmd),"end command buffer",error) ||
         !check(vkResetFences(g->device,1,&g->fence),"reset GPU fence",error)) return false;
     VkSubmitInfo submit_info={.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO,.commandBufferCount=1,.pCommandBuffers=&g->cmd};
@@ -527,11 +554,23 @@ static bool submit(VsGpu *g,uint32_t count,VsError *error) {
         !check(vkWaitForFences(g->device,1,&g->fence,VK_TRUE,UINT64_C(60000000000)),"GPU fence",error))
         return false;
     const uint32_t *c=g->buffers[QUEUES].data;
-    const Job *jobs=g->buffers[WORK].data;
-    Job failed=c[7]<count?jobs[c[7]]:(Job){0};
-    return (c[3]>=count && !c[5] && !g->validation_errors) ||
-        vs_fail(error,"Vulkan dispatch failed: %u rays, %u shader errors (code %u, pixel %u sample %u depth %u), %u validation errors",
-                c[3],c[5],c[6],failed.pixel,failed.sample,c[9],g->validation_errors);
+    uint32_t validation=atomic_load(&g->validation_errors);
+    if (c[3]<count || c[5] || validation) {
+        const Job *jobs=g->buffers[WORK].data;
+        Job failed=c[7]<count?jobs[c[7]]:(Job){0};
+        return vs_fail(error,"Vulkan dispatch failed: %u rays, %u shader errors (code %u, pixel %u sample %u depth %u), %u validation errors",
+                       c[3],c[5],c[6],failed.pixel,failed.sample,c[9],validation);
+    }
+    if (g->timer) {
+        uint64_t ticks[2];
+        if (!check(vkGetQueryPoolResults(g->device,g->timer,0,2,sizeof ticks,ticks,
+                                        sizeof ticks[0],VK_QUERY_RESULT_64_BIT),"read device timestamps",error))
+            return false;
+        VsGpuTiming batch={ticks[0],ticks[1],g->info.timestamp_period_ns,g->info.timestamp_bits,
+            count,c[3],c[4],c[8]};
+        if (!g->timing_sink(&batch,g->timing_context)) return vs_fail(error,"Vulkan timing capture write failed");
+    }
+    return true;
 }
 
 static bool collect(VsGpu *g,const VsScene *s,VsFilm *f,uint32_t count,VsStats *stats,VsError *error) {

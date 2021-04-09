@@ -1,5 +1,10 @@
 #include "vesper/gpu.h"
 
+bool vs_gpu_enable_timing(VsGpu *gpu,VsGpuTimingSink sink,void *context,VsError *error) {
+    (void)gpu; (void)sink; (void)context;
+    return vs_fail(error,"Vulkan backend was not built");
+}
+
 bool vs_gpu_open(VsGpu **gpu,const VsScene *scene,VsRender config,VsError *error) {
     (void)gpu; (void)scene; (void)config;
     return vs_fail(error,"Vulkan backend was not built (requires Vulkan SDK and glslangValidator)");

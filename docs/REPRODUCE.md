@@ -22,6 +22,10 @@ env DYLD_LIBRARY_PATH=/opt/homebrew/lib VESPER_VALIDATION=1 \
 
 Use PROFILE=full to check full acceptance readiness. The current preflight stops with an explicit failed status while required capabilities and full campaigns remain open. Release verification requires full acceptance. The [experiment plan](EXPERIMENT_PLAN.md) defines the diagnostic and full workloads and the [build status](BUILD_STATUS.md) identifies open gates.
 
+## Device timestamp capture
+
+Add **--gpu-timing run/device.csv** to a Vulkan render or probe. This records one pair of device timestamps per fenced batch, plus timer width, nanoseconds per tick, and useful sample, path, shadow and null counts. The reported interval spans command execution for the batch, including transfer and barrier work. It excludes host film accumulation. Sum modulo the valid timestamp width to handle counter wrap. The end-to-end benchmark uses synchronized host wall time. Timing capture remains opt-in for hardware without timestamp support. [Vulkan timestamp semantics](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdWriteTimestamp.html).
+
 ## Long showcase renders
 
 Run **make showcase-full OUT=run/full-gallery** for the six fixed Vulkan jobs at 1920 by 1080 and 1,024 samples per pixel. The script uses the same stratified sampler, seed 1789 and depth 8 for Afterglow, Veil, Prism, Iris, Shutter and Array. Its per-scene logs report completed row blocks and checkpoint writes. A checkpoint is published after at least 128 additional rows of retained work, plus at clean completion or interruption. Set FULL_SCENE to run one of the six jobs. The same command resumes from existing checkpoints after matching scene, device and render contracts. The output is locked to the exact source and binary, and the checker confirms 1,024 samples in every raw EXR pixel. Use a fresh output directory after changing the shader, scene or integrator. These outputs contribute to G13 and require separate full campaign verification.

@@ -15,7 +15,7 @@ typedef struct {
     uint32_t spp,pixel,sample,bin,checkpoint_rows;
     double exposure,adaptive_error;
     bool progress;
-    const char *prefix,*checkpoint,*resume;
+    const char *prefix,*checkpoint,*resume,*gpu_timing;
 } Options;
 
 static volatile sig_atomic_t stop;
@@ -31,7 +31,7 @@ static void usage(void) {
           "  --sampler random|stratified|halton --wavelength uniform|mixture\n"
           "  --bins N --start-ns X --step-ns X --bin N --exposure X\n"
           "  --prefix PATH --checkpoint PATH --checkpoint-rows N --resume PATH --pixel N --sample N\n"
-          "  --backend cpu|vulkan --region X Y W H --progress --no-nee --no-roulette\n",stderr);
+          "  --backend cpu|vulkan --region X Y W H --gpu-timing PATH --progress --no-nee --no-roulette\n",stderr);
 }
 
 static bool uint_arg(const char *s,uint32_t *out) {
@@ -81,6 +81,7 @@ static bool arguments(Options *o,int argc,char **argv,VsError *error) {
         else if (!strcmp(key,"--adaptive-rel")) real=&o->adaptive_error;
         else if (!strcmp(key,"--prefix")) o->prefix=value;
         else if (!strcmp(key,"--checkpoint")) o->checkpoint=value;
+        else if (!strcmp(key,"--gpu-timing")) o->gpu_timing=value;
         else if (!strcmp(key,"--resume")) o->resume=value;
         else if (!strcmp(key,"--backend")) {
             if (!strcmp(value,"cpu")) o->cfg.backend=VS_BACKEND_CPU;
@@ -107,6 +108,9 @@ static bool arguments(Options *o,int argc,char **argv,VsError *error) {
     if (!vs_render_valid(o->cfg,error) || o->spp<1 || o->spp>VS_MAX_SPP ||
         (o->bin!=UINT32_MAX && o->bin>=o->gate.bins) || fabs(o->exposure)>40)
         return vs_fail(error,"invalid render options");
+    if (o->gpu_timing && strcmp(argv[1],"gpu-probe") &&
+        (strcmp(argv[1],"render") || o->cfg.backend!=VS_BACKEND_VULKAN))
+        return vs_fail(error,"device timestamps require a Vulkan render");
     if (o->checkpoint_rows && (!o->checkpoint || !strcmp(argv[1],"trace")))
         return vs_fail(error,"periodic checkpoints require --checkpoint and a render");
     if (o->adaptive_error!=0 && (!(o->adaptive_error>=.001 && o->adaptive_error<=1) ||
@@ -152,6 +156,13 @@ static double monotonic(void) {
     return t.tv_sec+t.tv_nsec*1e-9;
 }
 
+static bool capture_timing(const VsGpuTiming *batch,void *context) {
+    FILE *file=context;
+    return fprintf(file,"%llu,%llu,%.17g,%u,%u,%u,%u,%u\n",
+        (unsigned long long)batch->start,(unsigned long long)batch->end,batch->period_ns,
+        batch->bits,batch->samples,batch->rays,batch->shadows,batch->nulls)>0;
+}
+
 static bool render(const VsScene *s,const Options *o,bool probe,VsError *error) {
     VsFilm f={0};
     VsGpu *gpu=NULL;
@@ -167,6 +178,14 @@ static bool render(const VsScene *s,const Options *o,bool probe,VsError *error) 
     bool ok=o->resume?vs_checkpoint_read(&f,o->resume,s,o->cfg,o->gate,device,error):
         vs_film_init(&f,s,o->cfg,o->gate,device,error);
     if (!ok) { vs_gpu_close(gpu); return false; }
+    FILE *timing=NULL;
+    if (o->gpu_timing) {
+        timing=fopen(o->gpu_timing,"w");
+        if (!timing) ok=vs_fail(error,"could not open GPU timing capture %s",o->gpu_timing);
+        else if (fputs("start,end,period_ns,bits,samples,rays,shadows,nulls\n",timing)==EOF)
+            ok=vs_fail(error,"could not write GPU timing header");
+        else ok=vs_gpu_enable_timing(gpu,capture_timing,timing,error);
+    }
     VsRegion r=o->region;
     VsStats stats={0},pilot={0};
     double t0=monotonic();
@@ -205,6 +224,7 @@ static bool render(const VsScene *s,const Options *o,bool probe,VsError *error) 
         }
     }
     free(targets);
+    if (timing && fclose(timing) && ok) ok=vs_fail(error,"could not close GPU timing capture");
     double dt=monotonic()-t0;
     if (ok && o->checkpoint) ok=vs_checkpoint_write(&f,o->checkpoint,error);
     char path[4096];

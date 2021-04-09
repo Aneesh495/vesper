@@ -73,7 +73,7 @@ def source_and_manifest(bundle, build, require_full):
         require(hash_file(build / name) == env["binary_hashes"][name], f"exact replay binary mismatch: {name}")
     commands = {row["name"]: row for row in records(bundle / "COMMANDS.jsonl")}
     require(all(row["exit"] == 0 and row["seconds"] > 0 for row in commands.values()), "failed recorded command")
-    require({"ctest", "geometry", "numerical", "temporal", "benchmark", "inverse",
+    require({"ctest", "geometry", "numerical", "temporal", "benchmark", "gpu-timing", "inverse",
              "recovery", "gpu-recovery", "adaptive-cpu", "adaptive-vulkan", "trace", "showcases", "workbench", "gpu-workbench", "grid-contract", "mesh-import", "texture-filter", "normal-maps", "environment"}.issubset(commands), "required command missing")
     return commands
 
@@ -434,6 +434,31 @@ def workbench(bundle, name, backend, samples):
                    channels["Y"][index], rel=4e-6, abs_=1e-7), "workbench transient export mismatch")
 
 
+def gpu_timing(bundle):
+    report = load(bundle / "gpu-timing.stdout")
+    require(report["backend"] == "vulkan" and report["samples"] == 64*48*16 and
+            "validation=1" in (bundle / "gpu-timing.stderr").read_text(), "invalid Vulkan timing workload")
+    with (bundle / "gpu-timing.csv").open() as f:
+        rows = list(csv.DictReader(f))
+    require(len(rows) == 6, "missing GPU timestamp batches")
+    totals = dict(samples=0, rays=0, shadows=0, nulls=0)
+    device_seconds = 0
+    for row in rows:
+        bits, start, end = (int(row[k]) for k in ("bits", "start", "end"))
+        period = float(row["period_ns"])
+        require(36 <= bits <= 64 and math.isfinite(period) and period > 0 and
+                0 <= start < 2**bits and 0 <= end < 2**bits, "invalid GPU timestamp contract")
+        elapsed = ((end-start) % (2**bits))*period*1e-9
+        require(0 < elapsed <= report["seconds"] and int(row["samples"]) == 8192 and
+                int(row["rays"]) >= 8192, "empty or invalid device timestamp interval")
+        device_seconds += elapsed
+        for key in totals:
+            totals[key] += int(row[key])
+    require(totals == {"samples": report["samples"], "rays": report["rays"],
+                       "shadows": report["shadow_rays"], "nulls": report["nulls"]} and
+            0 < device_seconds <= 1.1*report["seconds"], "GPU timer and useful work do not reconcile")
+
+
 def work(bundle):
     geometry = load(bundle / "geometry.stdout")
     require(geometry["rays"] == 1_000_000 and geometry["edge_rays"] == 1025 and
@@ -446,6 +471,7 @@ def work(bundle):
         require(row["triangles"] == 1_000_000 and row["samples"] == 512*256*16 and row["seconds"] > 0 and
                 row["path_segments"] >= row["samples"] and row["shadow_segments"] > 0 and
                 nearly(useful / row["seconds"], row["segments_per_s"], rel=1e-7), "benchmark workload or rate mismatch")
+    gpu_timing(bundle)
     mesh_import(bundle)
     texture_filter(bundle)
     normal_maps(bundle)
