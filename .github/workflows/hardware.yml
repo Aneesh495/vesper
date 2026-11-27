@@ -9,7 +9,7 @@ jobs:
     runs-on: [self-hosted, vesper-gpu]
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: make doctor
       - run: make acceptance PROFILE=diagnostic RUN_ID=hardware-${{ github.run_id }}-${{ github.run_attempt }}
       - run: make verify EVIDENCE=evidence/hardware-${{ github.run_id }}-${{ github.run_attempt }}
