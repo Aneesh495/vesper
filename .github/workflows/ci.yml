@@ -35,7 +35,7 @@ jobs:
           cmake --install build --prefix run/package
           tar -C run/package -czf run/vesper-linux.tar.gz .
           run/package/bin/vesper trace scenes/afterglow.vs --width 32 --height 24 --pixel 400
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: vesper-linux-diagnostics
           path: |
